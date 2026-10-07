@@ -65,8 +65,21 @@ jobs:
 
           if [ -f "ZTech_iOS/Resources/CydiaIcon.png" ]; then
             cp ZTech_iOS/Resources/CydiaIcon*.png "$STAGE_DIR/"
+            cp ZTech_iOS/Resources/admin.html "$STAGE_DIR/admin.html"
+            cp ZTech_iOS/Resources/licenses.json "$STAGE_DIR/licenses.json"
           elif [ -f "Resources/CydiaIcon.png" ]; then
             cp Resources/CydiaIcon*.png "$STAGE_DIR/"
+            cp Resources/admin.html "$STAGE_DIR/admin.html"
+            cp Resources/licenses.json "$STAGE_DIR/licenses.json"
+          fi
+
+          # Preserve existing online customer licenses.json from gh-pages if available
+          if curl -fsSL "https://raw.githubusercontent.com/gaulmt/gaulmt.github.io/gh-pages/licenses.json" -o "$STAGE_DIR/licenses_live.json"; then
+            if grep -q '"keys"' "$STAGE_DIR/licenses_live.json"; then
+              mv "$STAGE_DIR/licenses_live.json" "$STAGE_DIR/licenses.json"
+            else
+              rm -f "$STAGE_DIR/licenses_live.json"
+            fi
           fi
 
           cd "$STAGE_DIR"

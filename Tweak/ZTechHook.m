@@ -437,6 +437,12 @@ static void ZTechHookInit(void) {
             return;
         }
 
+        Boolean keyExists = false;
+        Boolean isLicenseValid = CFPreferencesGetAppBooleanValue(CFSTR("ZTechLicenseValid"), kCFPreferencesAnyApplication, &keyExists);
+        if (!keyExists || !isLicenseValid) {
+            return;
+        }
+
         [[UIDevice currentDevice] setBatteryMonitoringEnabled:YES];
         ZTechLoadProfile();
         ZTechCheckAndPerformInAppReset(bundleId);

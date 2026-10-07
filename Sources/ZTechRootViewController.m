@@ -1,11 +1,25 @@
 #import "ZTechRootViewController.h"
 #import "ZTechDeviceDatabase.h"
+#import "ZTechLicenseManager.h"
 
-@interface ZTechRootViewController ()
+@interface ZTechRootViewController () <UITextFieldDelegate>
 
 @property (nonatomic, strong) ZTechDeviceProfile *currentProfile;
 @property (nonatomic, strong) UIScrollView *scrollView;
 @property (nonatomic, strong) UIStackView *mainStack;
+
+// License Card UI
+@property (nonatomic, strong) UILabel *hwidValueLabel;
+@property (nonatomic, strong) UILabel *licenseStatusLabel;
+@property (nonatomic, strong) UIButton *btnCopyHWID;
+@property (nonatomic, strong) UIButton *btnManageKey;
+
+// Lock Screen Overlay UI (When not licensed or revoked)
+@property (nonatomic, strong) UIView *lockOverlayView;
+@property (nonatomic, strong) UITextField *keyInputField;
+@property (nonatomic, strong) UILabel *lockStatusMsgLabel;
+@property (nonatomic, strong) UIButton *btnActivateKey;
+@property (nonatomic, strong) UIButton *btnLockCopyHWID;
 
 // Identifier Card UI
 @property (nonatomic, strong) UILabel *uuidLabel;
@@ -49,12 +63,24 @@
 
     [self setupScrollView];
     [self buildHeaderSection];
+    [self buildLicenseCard];
     [self buildIdentifierCard];
     [self buildSwitchesCard];
     [self buildActionButtons];
     [self buildCheckCard];
+    [self buildLockScreenOverlay];
+
     [self onSwitchChanged:nil];
     [self refreshUIWithCurrentProfile];
+    [self updateLicenseUIState];
+
+    // Background online check on launch (auto-locks if Admin revoked or key expired)
+    [ZTechLicenseManager refreshSavedLicenseInBackgroundWithCompletion:^(BOOL isValid, NSString * _Nonnull statusText) {
+        [self updateLicenseUIState];
+        if (!isValid && self.lockStatusMsgLabel) {
+            self.lockStatusMsgLabel.text = statusText;
+        }
+    }];
 }
 
 #pragma mark - Color Helpers
@@ -151,8 +177,8 @@
 
     UILabel *subLabel = [[UILabel alloc] init];
     subLabel.translatesAutoresizingMaskIntoConstraints = NO;
-    subLabel.text = @"Change identity · Đổi máy & Làm mới (v3.3)";
-    subLabel.font = [UIFont systemFontOfSize:15.5 weight:UIFontWeightRegular];
+    subLabel.text = @"Change identity · Đổi máy & Quản lý Bản quyền (v4.3)";
+    subLabel.font = [UIFont systemFontOfSize:14.5 weight:UIFontWeightRegular];
     subLabel.textColor = [UIColor colorWithRed:0.75 green:0.76 blue:0.72 alpha:1.0];
 
     [headerContainer addSubview:logoBadge];
@@ -179,6 +205,233 @@
     ]];
 
     [self.mainStack addArrangedSubview:headerContainer];
+}
+
+- (void)buildLicenseCard {
+    UIView *card = [self createStyledCardView];
+
+    UILabel *tagLabel = [[UILabel alloc] init];
+    tagLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    tagLabel.text = @"B Ả N   Q U Y Ề N   ·   1   K E Y   =   1   M Á Y";
+    tagLabel.font = [UIFont systemFontOfSize:11.5 weight:UIFontWeightBold];
+    tagLabel.textColor = [self goldAccentColor];
+
+    self.hwidValueLabel = [[UILabel alloc] init];
+    self.hwidValueLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    self.hwidValueLabel.text = [NSString stringWithFormat:@"Mã máy: %@", [ZTechLicenseManager deviceHardwareID]];
+    self.hwidValueLabel.font = [UIFont systemFontOfSize:15.0 weight:UIFontWeightBold];
+    self.hwidValueLabel.textColor = [UIColor whiteColor];
+
+    self.licenseStatusLabel = [[UILabel alloc] init];
+    self.licenseStatusLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    self.licenseStatusLabel.font = [UIFont systemFontOfSize:13.5 weight:UIFontWeightMedium];
+    self.licenseStatusLabel.textColor = [UIColor colorWithRed:0.55 green:0.90 blue:0.60 alpha:1.0];
+    self.licenseStatusLabel.numberOfLines = 0;
+
+    self.btnCopyHWID = [UIButton buttonWithType:UIButtonTypeSystem];
+    self.btnCopyHWID.translatesAutoresizingMaskIntoConstraints = NO;
+    self.btnCopyHWID.backgroundColor = [UIColor colorWithRed:0.15 green:0.16 blue:0.13 alpha:1.0];
+    self.btnCopyHWID.layer.cornerRadius = 10.0;
+    self.btnCopyHWID.layer.borderWidth = 1.0;
+    self.btnCopyHWID.layer.borderColor = [self goldAccentColor].CGColor;
+    [self.btnCopyHWID setTitle:@"Copy Mã máy" forState:UIControlStateNormal];
+    [self.btnCopyHWID setTitleColor:[self goldAccentColor] forState:UIControlStateNormal];
+    self.btnCopyHWID.titleLabel.font = [UIFont systemFontOfSize:12.5 weight:UIFontWeightBold];
+    self.btnCopyHWID.contentEdgeInsets = UIEdgeInsetsMake(6.0, 10.0, 6.0, 10.0);
+    [self.btnCopyHWID addTarget:self action:@selector(onTapCopyHWID) forControlEvents:UIControlEventTouchUpInside];
+
+    self.btnManageKey = [UIButton buttonWithType:UIButtonTypeSystem];
+    self.btnManageKey.translatesAutoresizingMaskIntoConstraints = NO;
+    self.btnManageKey.backgroundColor = [self creamButtonColor];
+    self.btnManageKey.layer.cornerRadius = 10.0;
+    [self.btnManageKey setTitle:@"Đổi Key" forState:UIControlStateNormal];
+    [self.btnManageKey setTitleColor:[self darkButtonTextColor] forState:UIControlStateNormal];
+    self.btnManageKey.titleLabel.font = [UIFont systemFontOfSize:12.5 weight:UIFontWeightBold];
+    self.btnManageKey.contentEdgeInsets = UIEdgeInsetsMake(6.0, 10.0, 6.0, 10.0);
+    [self.btnManageKey addTarget:self action:@selector(onTapShowKeyModal) forControlEvents:UIControlEventTouchUpInside];
+
+    [card addSubview:tagLabel];
+    [card addSubview:self.hwidValueLabel];
+    [card addSubview:self.licenseStatusLabel];
+    [card addSubview:self.btnCopyHWID];
+    [card addSubview:self.btnManageKey];
+
+    [NSLayoutConstraint activateConstraints:@[
+        [tagLabel.topAnchor constraintEqualToAnchor:card.topAnchor constant:14.0],
+        [tagLabel.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:16.0],
+
+        [self.hwidValueLabel.topAnchor constraintEqualToAnchor:tagLabel.bottomAnchor constant:6.0],
+        [self.hwidValueLabel.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:16.0],
+
+        [self.btnManageKey.centerYAnchor constraintEqualToAnchor:self.hwidValueLabel.centerYAnchor],
+        [self.btnManageKey.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-14.0],
+
+        [self.btnCopyHWID.centerYAnchor constraintEqualToAnchor:self.hwidValueLabel.centerYAnchor],
+        [self.btnCopyHWID.trailingAnchor constraintEqualToAnchor:self.btnManageKey.leadingAnchor constant:-8.0],
+
+        [self.licenseStatusLabel.topAnchor constraintEqualToAnchor:self.hwidValueLabel.bottomAnchor constant:6.0],
+        [self.licenseStatusLabel.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:16.0],
+        [self.licenseStatusLabel.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-16.0],
+        [self.licenseStatusLabel.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-14.0]
+    ]];
+
+    [self.mainStack addArrangedSubview:card];
+}
+
+- (void)buildLockScreenOverlay {
+    self.lockOverlayView = [[UIView alloc] init];
+    self.lockOverlayView.translatesAutoresizingMaskIntoConstraints = NO;
+    self.lockOverlayView.backgroundColor = [UIColor colorWithRed:0.03 green:0.04 blue:0.03 alpha:0.97];
+    [self.view addSubview:self.lockOverlayView];
+
+    UIView *box = [self createStyledCardView];
+    box.layer.borderWidth = 1.5;
+    box.layer.borderColor = [self goldAccentColor].CGColor;
+    [self.lockOverlayView addSubview:box];
+
+    UILabel *lockTitle = [[UILabel alloc] init];
+    lockTitle.translatesAutoresizingMaskIntoConstraints = NO;
+    lockTitle.text = @"🔐 KÍCH HOẠT BẢN QUYỀN";
+    lockTitle.font = [UIFont systemFontOfSize:20.0 weight:UIFontWeightHeavy];
+    lockTitle.textColor = [self goldAccentColor];
+    lockTitle.textAlignment = NSTextAlignmentCenter;
+
+    UILabel *lockSub = [[UILabel alloc] init];
+    lockSub.translatesAutoresizingMaskIntoConstraints = NO;
+    lockSub.text = @"Ứng dụng yêu cầu Key bản quyền (Khoá cứng 1 Key / 1 Máy).\nSao chép Mã máy dưới đây gửi cho Admin để nhận Key:";
+    lockSub.font = [UIFont systemFontOfSize:13.5 weight:UIFontWeightRegular];
+    lockSub.textColor = [UIColor colorWithWhite:0.82 alpha:1.0];
+    lockSub.textAlignment = NSTextAlignmentCenter;
+    lockSub.numberOfLines = 0;
+
+    UIView *hwidBox = [[UIView alloc] init];
+    hwidBox.translatesAutoresizingMaskIntoConstraints = NO;
+    hwidBox.backgroundColor = [UIColor colorWithRed:0.05 green:0.06 blue:0.05 alpha:1.0];
+    hwidBox.layer.cornerRadius = 12.0;
+    hwidBox.layer.borderWidth = 1.0;
+    hwidBox.layer.borderColor = [self cardBorderColor].CGColor;
+
+    UILabel *hwidBigLabel = [[UILabel alloc] init];
+    hwidBigLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    hwidBigLabel.text = [ZTechLicenseManager deviceHardwareID];
+    hwidBigLabel.font = [UIFont systemFontOfSize:21.0 weight:UIFontWeightHeavy];
+    hwidBigLabel.textColor = [UIColor whiteColor];
+    hwidBigLabel.textAlignment = NSTextAlignmentCenter;
+    [hwidBox addSubview:hwidBigLabel];
+
+    self.btnLockCopyHWID = [UIButton buttonWithType:UIButtonTypeSystem];
+    self.btnLockCopyHWID.translatesAutoresizingMaskIntoConstraints = NO;
+    self.btnLockCopyHWID.backgroundColor = [UIColor colorWithRed:0.16 green:0.15 blue:0.10 alpha:1.0];
+    self.btnLockCopyHWID.layer.cornerRadius = 12.0;
+    self.btnLockCopyHWID.layer.borderWidth = 1.0;
+    self.btnLockCopyHWID.layer.borderColor = [self goldAccentColor].CGColor;
+    [self.btnLockCopyHWID setTitle:@"📋 Sao chép Mã máy gửi Admin" forState:UIControlStateNormal];
+    [self.btnLockCopyHWID setTitleColor:[self goldAccentColor] forState:UIControlStateNormal];
+    self.btnLockCopyHWID.titleLabel.font = [UIFont systemFontOfSize:14.5 weight:UIFontWeightBold];
+    [self.btnLockCopyHWID addTarget:self action:@selector(onTapCopyHWID) forControlEvents:UIControlEventTouchUpInside];
+
+    self.keyInputField = [[UITextField alloc] init];
+    self.keyInputField.translatesAutoresizingMaskIntoConstraints = NO;
+    self.keyInputField.backgroundColor = [UIColor colorWithRed:0.05 green:0.06 blue:0.05 alpha:1.0];
+    self.keyInputField.layer.cornerRadius = 12.0;
+    self.keyInputField.layer.borderWidth = 1.0;
+    self.keyInputField.layer.borderColor = [self goldAccentColor].CGColor;
+    self.keyInputField.textColor = [UIColor whiteColor];
+    self.keyInputField.font = [UIFont systemFontOfSize:16.0 weight:UIFontWeightBold];
+    self.keyInputField.textAlignment = NSTextAlignmentCenter;
+    self.keyInputField.autocapitalizationType = UITextAutocapitalizationTypeAllCharacters;
+    self.keyInputField.autocorrectionType = UITextAutocorrectionTypeNo;
+    self.keyInputField.returnKeyType = UIReturnKeyDone;
+    self.keyInputField.delegate = self;
+    self.keyInputField.attributedPlaceholder = [[NSAttributedString alloc] initWithString:@"Nhập mã Key (VD: GT-20261231-XXXX)"
+                                                                               attributes:@{NSForegroundColorAttributeName: [UIColor colorWithWhite:0.45 alpha:1.0]}];
+    NSString *existingKey = [ZTechLicenseManager savedLicenseKey];
+    if (existingKey.length > 0) {
+        self.keyInputField.text = existingKey;
+    }
+
+    UIButton *btnPasteKey = [UIButton buttonWithType:UIButtonTypeSystem];
+    btnPasteKey.translatesAutoresizingMaskIntoConstraints = NO;
+    [btnPasteKey setTitle:@"Dán Key từ bộ nhớ tạm" forState:UIControlStateNormal];
+    [btnPasteKey setTitleColor:[self goldAccentColor] forState:UIControlStateNormal];
+    btnPasteKey.titleLabel.font = [UIFont systemFontOfSize:13.5 weight:UIFontWeightSemibold];
+    [btnPasteKey addTarget:self action:@selector(onTapPasteKey) forControlEvents:UIControlEventTouchUpInside];
+
+    self.lockStatusMsgLabel = [[UILabel alloc] init];
+    self.lockStatusMsgLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    self.lockStatusMsgLabel.text = @"Chưa kích hoạt bản quyền.";
+    self.lockStatusMsgLabel.font = [UIFont systemFontOfSize:13.5 weight:UIFontWeightMedium];
+    self.lockStatusMsgLabel.textColor = [UIColor colorWithRed:0.95 green:0.55 blue:0.50 alpha:1.0];
+    self.lockStatusMsgLabel.textAlignment = NSTextAlignmentCenter;
+    self.lockStatusMsgLabel.numberOfLines = 0;
+
+    self.btnActivateKey = [UIButton buttonWithType:UIButtonTypeSystem];
+    self.btnActivateKey.translatesAutoresizingMaskIntoConstraints = NO;
+    self.btnActivateKey.backgroundColor = [self creamButtonColor];
+    self.btnActivateKey.layer.cornerRadius = 14.0;
+    [self.btnActivateKey setTitle:@"🔓 Kích hoạt Bản quyền" forState:UIControlStateNormal];
+    [self.btnActivateKey setTitleColor:[self darkButtonTextColor] forState:UIControlStateNormal];
+    self.btnActivateKey.titleLabel.font = [UIFont systemFontOfSize:16.5 weight:UIFontWeightHeavy];
+    [self.btnActivateKey addTarget:self action:@selector(onTapActivateKey) forControlEvents:UIControlEventTouchUpInside];
+
+    [box addSubview:lockTitle];
+    [box addSubview:lockSub];
+    [box addSubview:hwidBox];
+    [box addSubview:self.btnLockCopyHWID];
+    [box addSubview:self.keyInputField];
+    [box addSubview:btnPasteKey];
+    [box addSubview:self.lockStatusMsgLabel];
+    [box addSubview:self.btnActivateKey];
+
+    [NSLayoutConstraint activateConstraints:@[
+        [self.lockOverlayView.topAnchor constraintEqualToAnchor:self.view.topAnchor],
+        [self.lockOverlayView.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
+        [self.lockOverlayView.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
+        [self.lockOverlayView.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],
+
+        [box.centerYAnchor constraintEqualToAnchor:self.lockOverlayView.centerYAnchor],
+        [box.leadingAnchor constraintEqualToAnchor:self.lockOverlayView.leadingAnchor constant:20.0],
+        [box.trailingAnchor constraintEqualToAnchor:self.lockOverlayView.trailingAnchor constant:-20.0],
+
+        [lockTitle.topAnchor constraintEqualToAnchor:box.topAnchor constant:22.0],
+        [lockTitle.leadingAnchor constraintEqualToAnchor:box.leadingAnchor constant:16.0],
+        [lockTitle.trailingAnchor constraintEqualToAnchor:box.trailingAnchor constant:-16.0],
+
+        [lockSub.topAnchor constraintEqualToAnchor:lockTitle.bottomAnchor constant:8.0],
+        [lockSub.leadingAnchor constraintEqualToAnchor:box.leadingAnchor constant:16.0],
+        [lockSub.trailingAnchor constraintEqualToAnchor:box.trailingAnchor constant:-16.0],
+
+        [hwidBox.topAnchor constraintEqualToAnchor:lockSub.bottomAnchor constant:14.0],
+        [hwidBox.leadingAnchor constraintEqualToAnchor:box.leadingAnchor constant:16.0],
+        [hwidBox.trailingAnchor constraintEqualToAnchor:box.trailingAnchor constant:-16.0],
+        [hwidBox.heightAnchor constraintEqualToConstant:48.0],
+
+        [hwidBigLabel.centerXAnchor constraintEqualToAnchor:hwidBox.centerXAnchor],
+        [hwidBigLabel.centerYAnchor constraintEqualToAnchor:hwidBox.centerYAnchor],
+
+        [self.btnLockCopyHWID.topAnchor constraintEqualToAnchor:hwidBox.bottomAnchor constant:10.0],
+        [self.btnLockCopyHWID.leadingAnchor constraintEqualToAnchor:box.leadingAnchor constant:16.0],
+        [self.btnLockCopyHWID.trailingAnchor constraintEqualToAnchor:box.trailingAnchor constant:-16.0],
+        [self.btnLockCopyHWID.heightAnchor constraintEqualToConstant:42.0],
+
+        [self.keyInputField.topAnchor constraintEqualToAnchor:self.btnLockCopyHWID.bottomAnchor constant:16.0],
+        [self.keyInputField.leadingAnchor constraintEqualToAnchor:box.leadingAnchor constant:16.0],
+        [self.keyInputField.trailingAnchor constraintEqualToAnchor:box.trailingAnchor constant:-16.0],
+        [self.keyInputField.heightAnchor constraintEqualToConstant:48.0],
+
+        [btnPasteKey.topAnchor constraintEqualToAnchor:self.keyInputField.bottomAnchor constant:6.0],
+        [btnPasteKey.centerXAnchor constraintEqualToAnchor:box.centerXAnchor],
+
+        [self.lockStatusMsgLabel.topAnchor constraintEqualToAnchor:btnPasteKey.bottomAnchor constant:8.0],
+        [self.lockStatusMsgLabel.leadingAnchor constraintEqualToAnchor:box.leadingAnchor constant:16.0],
+        [self.lockStatusMsgLabel.trailingAnchor constraintEqualToAnchor:box.trailingAnchor constant:-16.0],
+
+        [self.btnActivateKey.topAnchor constraintEqualToAnchor:self.lockStatusMsgLabel.bottomAnchor constant:14.0],
+        [self.btnActivateKey.leadingAnchor constraintEqualToAnchor:box.leadingAnchor constant:16.0],
+        [self.btnActivateKey.trailingAnchor constraintEqualToAnchor:box.trailingAnchor constant:-16.0],
+        [self.btnActivateKey.heightAnchor constraintEqualToConstant:50.0],
+        [self.btnActivateKey.bottomAnchor constraintEqualToAnchor:box.bottomAnchor constant:-20.0]
+    ]];
 }
 
 - (void)buildIdentifierCard {
@@ -445,6 +698,80 @@
     [self.mainStack addArrangedSubview:card];
 }
 
+#pragma mark - License Actions
+
+- (void)updateLicenseUIState {
+    BOOL valid = [ZTechLicenseManager isLicenseCurrentlyValid];
+    self.lockOverlayView.hidden = valid;
+    if (valid) {
+        [self.keyInputField resignFirstResponder];
+        self.licenseStatusLabel.text = [NSString stringWithFormat:@"🟢 Đã kích hoạt · %@", [ZTechLicenseManager licenseStatusSummary]];
+        self.licenseStatusLabel.textColor = [UIColor colorWithRed:0.55 green:0.90 blue:0.60 alpha:1.0];
+    } else {
+        self.licenseStatusLabel.text = @"🔴 Chưa kích hoạt hoặc Key đã hết hạn / bị khoá";
+        self.licenseStatusLabel.textColor = [UIColor colorWithRed:0.95 green:0.50 blue:0.45 alpha:1.0];
+    }
+}
+
+- (void)onTapCopyHWID {
+    NSString *hwid = [ZTechLicenseManager deviceHardwareID];
+    [UIPasteboard generalPasteboard].string = hwid;
+    [self.btnCopyHWID setTitle:@"Đã chép ✓" forState:UIControlStateNormal];
+    [self.btnLockCopyHWID setTitle:[NSString stringWithFormat:@"✓ Đã sao chép: %@", hwid] forState:UIControlStateNormal];
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        [self.btnCopyHWID setTitle:@"Copy Mã máy" forState:UIControlStateNormal];
+        [self.btnLockCopyHWID setTitle:@"📋 Sao chép Mã máy gửi Admin" forState:UIControlStateNormal];
+    });
+}
+
+- (void)onTapPasteKey {
+    NSString *clip = [UIPasteboard generalPasteboard].string;
+    if (clip.length > 0) {
+        self.keyInputField.text = [clip stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    }
+}
+
+- (void)onTapShowKeyModal {
+    self.lockOverlayView.hidden = NO;
+    NSString *savedKey = [ZTechLicenseManager savedLicenseKey];
+    if (savedKey.length > 0) {
+        self.keyInputField.text = savedKey;
+    }
+    self.lockStatusMsgLabel.text = [ZTechLicenseManager isLicenseCurrentlyValid]
+        ? [NSString stringWithFormat:@"Đang dùng: %@", [ZTechLicenseManager licenseStatusSummary]]
+        : @"Vui lòng nhập Key bản quyền cho Mã máy này.";
+}
+
+- (void)onTapActivateKey {
+    [self.keyInputField resignFirstResponder];
+    NSString *inputKey = self.keyInputField.text ?: @"";
+    self.btnActivateKey.enabled = NO;
+    [self.btnActivateKey setTitle:@"Đang kiểm tra Key..." forState:UIControlStateNormal];
+    self.lockStatusMsgLabel.text = @"Đang xác thực bản quyền với hệ thống...";
+    self.lockStatusMsgLabel.textColor = [self goldAccentColor];
+
+    [ZTechLicenseManager verifyAndActivateKey:inputKey completion:^(BOOL isValid, NSString * _Nonnull message, NSString * _Nullable ownerName, NSString * _Nullable expiryText) {
+        self.btnActivateKey.enabled = YES;
+        [self.btnActivateKey setTitle:@"🔓 Kích hoạt Bản quyền" forState:UIControlStateNormal];
+        self.lockStatusMsgLabel.text = message;
+        if (isValid) {
+            self.lockStatusMsgLabel.textColor = [UIColor colorWithRed:0.55 green:0.90 blue:0.60 alpha:1.0];
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.4 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                [self updateLicenseUIState];
+            });
+        } else {
+            self.lockStatusMsgLabel.textColor = [UIColor colorWithRed:0.95 green:0.50 blue:0.45 alpha:1.0];
+            [self updateLicenseUIState];
+        }
+    }];
+}
+
+- (BOOL)textFieldShouldReturn:(UITextField *)textField {
+    [textField resignFirstResponder];
+    [self onTapActivateKey];
+    return YES;
+}
+
 #pragma mark - Actions & Updates
 
 - (void)onSwitchChanged:(UISwitch *)sender {
@@ -498,6 +825,11 @@
 }
 
 - (void)onTapChangeDevice {
+    if (![ZTechLicenseManager isLicenseCurrentlyValid]) {
+        [self updateLicenseUIState];
+        return;
+    }
+
     UIImpactFeedbackGenerator *gen = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleMedium];
     [gen impactOccurred];
 
@@ -520,6 +852,11 @@
 }
 
 - (void)onTapCleanReset {
+    if (![ZTechLicenseManager isLicenseCurrentlyValid]) {
+        [self updateLicenseUIState];
+        return;
+    }
+
     UIImpactFeedbackGenerator *gen = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleHeavy];
     [gen impactOccurred];
 
@@ -537,6 +874,11 @@
 }
 
 - (void)onTapSyncIP {
+    if (![ZTechLicenseManager isLicenseCurrentlyValid]) {
+        [self updateLicenseUIState];
+        return;
+    }
+
     [self.syncIPButton setTitle:@"Đang đồng bộ vị trí IP..." forState:UIControlStateNormal];
     self.syncIPButton.enabled = NO;
 

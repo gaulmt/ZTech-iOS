@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <title>gaulmt -Tech · Quản Lý Key Bản Quyền (Admin)</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      background: #090b09;
+      color: #f0f2f0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      margin: 0;
+      padding: 20px 14px 60px;
+    }
+    .container { max-width: 780px; margin: 0 auto; }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 18px;
+    }
+    .badge {
+      width: 48px; height: 48px;
+      border-radius: 13px;
+      background: #141814;
+      border: 2px solid #dec882;
+      color: #dec882;
+      font-weight: 900;
+      font-size: 20px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    h1 { margin: 0; font-size: 24px; color: #fff; }
+    .sub { color: #9fa69f; font-size: 13.5px; margin-top: 3px; }
+    .card {
+      background: #131613;
+      border: 1px solid #2e3226;
+      border-radius: 18px;
+      padding: 18px;
+      margin-bottom: 16px;
+    }
+    .card-title {
+      color: #dec882;
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      margin-bottom: 12px;
+    }
+    label {
+      display: block;
+      font-size: 13px;
+      color: #b8bfb8;
+      margin-bottom: 6px;
+      font-weight: 600;
+    }
+    input, select {
+      width: 100%;
+      padding: 12px 14px;
+      background: #0a0c0a;
+      border: 1px solid #383d2e;
+      border-radius: 12px;
+      color: #fff;
+      font-size: 15px;
+      margin-bottom: 12px;
+      outline: none;
+    }
+    input:focus, select:focus { border-color: #dec882; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; }
+    .col { flex: 1; min-width: 180px; }
+    .btn {
+      cursor: pointer;
+      border: none;
+      border-radius: 12px;
+      padding: 13px 18px;
+      font-weight: 700;
+      font-size: 15px;
+      transition: opacity 0.15s;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+    .btn:active { opacity: 0.75; }
+    .btn-gold { background: #eae0b7; color: #1f1d14; width: 100%; }
+    .btn-outline {
+      background: #1a1d17;
+      color: #dec882;
+      border: 1px solid #dec882;
+    }
+    .btn-sm { padding: 7px 11px; font-size: 12.5px; border-radius: 9px; }
+    .btn-danger { background: #3a1818; color: #ff8b8b; border: 1px solid #6e2a2a; }
+    .btn-success { background: #16331e; color: #7ef79c; border: 1px solid #285e36; }
+    .result-box {
+      background: #0a0c0a;
+      border: 1px dashed #dec882;
+      border-radius: 13px;
+      padding: 14px;
+      margin-top: 12px;
+      text-align: center;
+      display: none;
+    }
+    .key-text {
+      font-family: monospace;
+      font-size: 20px;
+      font-weight: 900;
+      color: #dec882;
+      word-break: break-all;
+      margin: 6px 0 10px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 8px;
+      font-size: 13.5px;
+    }
+    th, td {
+      text-align: left;
+      padding: 10px 8px;
+      border-bottom: 1px solid #23271e;
+    }
+    th { color: #9fa69f; font-size: 12px; text-transform: uppercase; }
+    .status-active {
+      background: #14331c; color: #72f291;
+      padding: 3px 8px; border-radius: 6px; font-size: 12px; font-weight: 700;
+    }
+    .status-locked {
+      background: #381717; color: #ff8080;
+      padding: 3px 8px; border-radius: 6px; font-size: 12px; font-weight: 700;
+    }
+    .status-msg { font-size: 13px; margin-top: 8px; color: #dec882; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="badge">GT</div>
+      <div>
+        <h1>gaulmt -Tech Admin</h1>
+        <div class="sub">Hệ thống Tạo & Quản lý Key Bản Quyền (Khoá cứng 1 Key = 1 Máy)</div>
+      </div>
+    </div>
+
+    <!-- TẠO KEY NHANH THEO MÃ MÁY -->
+    <div class="card">
+      <div class="card-title">1. Tạo Key Bản Quyền Cho Khách (1 Key = 1 Máy)</div>
+      <div class="row">
+        <div class="col">
+          <label>Mã máy của khách (HWID trên màn hình App):</label>
+          <input type="text" id="hwidInput" placeholder="VD: GT-8F2A-91C4" style="text-transform:uppercase;font-weight:700;">
+        </div>
+        <div class="col">
+          <label>Tên khách hàng / Ghi chú Zalo:</label>
+          <input type="text" id="ownerInput" placeholder="VD: Anh Nam - Zalo 0909...">
+        </div>
+      </div>
+      <div class="row">
+        <div class="col">
+          <label>Thời hạn sử dụng:</label>
+          <select id="durationSelect">
+            <option value="1">1 Ngày (Dùng thử)</option>
+            <option value="7">7 Ngày (1 Tuần)</option>
+            <option value="30" selected>30 Ngày (1 Tháng)</option>
+            <option value="90">90 Ngày (3 Tháng)</option>
+            <option value="365">365 Ngày (1 Năm)</option>
+            <option value="LIFETIME">Vĩnh Viễn (Lifetime)</option>
+          </select>
+        </div>
+      </div>
+      <button class="btn btn-gold" onclick="generateAndSaveKey()">⚡ Tạo Key Theo Mã Máy & Lưu Hệ Thống</button>
+
+      <div class="result-box" id="resultBox">
+        <div style="font-size:13px;color:#b8bfb8;">Key bản quyền đã tạo cho máy <b id="resHwid" style="color:#fff;"></b>:</div>
+        <div class="key-text" id="resKey"></div>
+        <button class="btn btn-outline btn-sm" onclick="copyGeneratedKey()">📋 Sao chép Key gửi cho khách</button>
+      </div>
+    </div>
+
+    <!-- KẾT NỐI QUẢN LÝ ONLINE TỪ XA -->
+    <div class="card">
+      <div class="card-title">2. Quản Lý Danh Sách Key Online (Khoá / Mở Khoá / Gia Hạn Từ Xa)</div>
+      <label>Mã Token Admin GitHub (Chỉ cần nhập 1 lần để tự động đồng bộ danh sách Key Online):</label>
+      <div class="row">
+        <div class="col">
+          <input type="password" id="ghTokenInput" placeholder="Dán GitHub Personal Access Token (ghp_...)" onchange="saveToken()">
+        </div>
+        <div>
+          <button class="btn btn-outline" onclick="loadOnlineKeys()">🔄 Tải danh sách Key</button>
+        </div>
+      </div>
+      <div id="syncStatus" class="status-msg"></div>
+
+      <div style="overflow-x:auto;">
+        <table>
+          <thead>
+            <tr>
+              <th>Khách hàng</th>
+              <th>Mã máy (HWID)</th>
+              <th>Mã Key</th>
+              <th>Hạn dùng</th>
+              <th>Trạng thái</th>
+              <th>Thao tác</th>
+            </tr>
+          </thead>
+          <tbody id="keysTableBody">
+            <tr><td colspan="6" style="text-align:center;color:#777;">Nhấn "Tải danh sách Key" để xem và quản lý</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const SECRET_SALT = "GAULMT_TECH_SECRET_2026_V43";
+    const REPO = "gaulmt/gaulmt.github.io";
+    const FILE_PATH = "licenses.json";
+    let onlineDatabase = { updatedAt: "", keys: [] };
+    let currentFileSha = null;
+    let lastGeneratedKey = "";
+
+    window.addEventListener("DOMContentLoaded", () => {
+      const savedToken = localStorage.getItem("gaulmt_admin_gh_token");
+      if (savedToken) {
+        document.getElementById("ghTokenInput").value = savedToken;
+      }
+      loadOnlineKeys();
+    });
+
+    function saveToken() {
+      const tk = document.getElementById("ghTokenInput").value.trim();
+      localStorage.setItem("gaulmt_admin_gh_token", tk);
+    }
+
+    // Thuật toán chữ ký số FNV-1a + DJB2 khớp 100% với ZTechLicenseManager.m trên iOS
+    function computeSignature(hwid, expiryCode) {
+      const cleanHwid = hwid.trim().toUpperCase();
+      const payload = `${cleanHwid}|${expiryCode}|${SECRET_SALT}`;
+      const bytes = new TextEncoder().encode(payload);
+      let h1 = 0x811c9dc5 >>> 0;
+      let h2 = 5381 >>> 0;
+      for (let i = 0; i < bytes.length; i++) {
+        const ch = bytes[i];
+        h1 = (h1 ^ ch) >>> 0;
+        h1 = Math.imul(h1, 0x01000193) >>> 0;
+        h2 = (((h2 << 5) + h2) ^ ch) >>> 0;
+      }
+      const p1 = (h1 & 0xFFFF).toString(16).toUpperCase().padStart(4, "0");
+      const p2 = (h2 & 0xFFFF).toString(16).toUpperCase().padStart(4, "0");
+      return p1 + p2;
+    }
+
+    function getExpiryCodes(durationVal) {
+      if (durationVal === "LIFETIME") {
+        return { code8: "99999999", isoDate: "LIFETIME" };
+      }
+      const days = parseInt(durationVal, 10) || 30;
+      const d = new Date();
+      d.setDate(d.getDate() + days);
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, "0");
+      const dd = String(d.getDate()).padStart(2, "0");
+      return {
+        code8: `${yyyy}${mm}${dd}`,
+        isoDate: `${yyyy}-${mm}-${dd}`
+      };
+    }
+
+    async function generateAndSaveKey() {
+      const hwid = document.getElementById("hwidInput").value.trim().toUpperCase();
+      const owner = document.getElementById("ownerInput").value.trim() || "Khách VIP";
+      const dur = document.getElementById("durationSelect").value;
+
+      if (!hwid || !hwid.startsWith("GT-") || hwid.length < 10) {
+        alert("Vui lòng nhập đúng Mã máy (HWID) của khách (Ví dụ: GT-8F2A-91C4)!");
+        return;
+      }
+
+      const { code8, isoDate } = getExpiryCodes(dur);
+      const sig = computeSignature(hwid, code8);
+      const key = `GT-${code8}-${sig}`;
+      lastGeneratedKey = key;
+
+      document.getElementById("resHwid").textContent = hwid;
+      document.getElementById("resKey").textContent = key;
+      document.getElementById("resultBox").style.display = "block";
+
+      // Thêm vào danh sách Online
+      const existingIdx = onlineDatabase.keys.findIndex(k => k.key === key || (k.hwid === hwid && k.hwid !== "*"));
+      const entry = {
+        key: key,
+        hwid: hwid,
+        owner: owner,
+        expires: isoDate,
+        status: "active"
+      };
+      if (existingIdx >= 0) {
+        onlineDatabase.keys[existingIdx] = entry;
+      } else {
+        onlineDatabase.keys.unshift(entry);
+      }
+      renderTable();
+      await saveOnlineDatabase("Đã tạo Key & đồng bộ lên Server thành công!");
+    }
+
+    function copyGeneratedKey() {
+      if (!lastGeneratedKey) return;
+      navigator.clipboard.writeText(lastGeneratedKey);
+      alert("Đã sao chép Key: " + lastGeneratedKey);
+    }
+
+    function copyKeyText(k) {
+      navigator.clipboard.writeText(k);
+      alert("Đã sao chép Key: " + k);
+    }
+
+    async function loadOnlineKeys() {
+      const statusEl = document.getElementById("syncStatus");
+      statusEl.textContent = "Đang tải danh sách Key từ hệ thống...";
+      const token = document.getElementById("ghTokenInput").value.trim();
+
+      try {
+        const headers = { "Accept": "application/vnd.github+json" };
+        if (token) headers["Authorization"] = `Bearer ${token}`;
+
+        const resp = await fetch(`https://api.github.com/repos/${REPO}/contents/${FILE_PATH}?ref=gh-pages&t=${Date.now()}`, { headers });
+        if (resp.ok) {
+          const data = await resp.json();
+          currentFileSha = data.sha;
+          const decoded = new TextDecoder().decode(Uint8Array.from(atob(data.content.replace(/\n/g, "")), c => c.charCodeAt(0)));
+          onlineDatabase = JSON.parse(decoded);
+          renderTable();
+          statusEl.textContent = `Đã tải ${onlineDatabase.keys.length} Key bản quyền.`;
+          return;
+        }
+      } catch (e) {}
+
+      // Fallback đọc trực tiếp file public
+      try {
+        const r2 = await fetch(`licenses.json?t=${Date.now()}`);
+        if (r2.ok) {
+          onlineDatabase = await r2.json();
+          renderTable();
+          statusEl.textContent = `Đang xem chế độ Công khai (${onlineDatabase.keys.length} Key). Nhập Token Admin để lưu thay đổi từ xa.`;
+        }
+      } catch (e2) {
+        statusEl.textContent = "Không thể tải danh sách Key.";
+      }
+    }
+
+    async function saveOnlineDatabase(successNotice) {
+      const token = document.getElementById("ghTokenInput").value.trim();
+      const statusEl = document.getElementById("syncStatus");
+      if (!token) {
+        statusEl.textContent = "⚠️ Key đã tạo (chạy được ngay nhờ chữ ký số). Nhập Token GitHub ở mục 2 nếu muốn lưu danh sách để Khoá/Huỷ từ xa.";
+        return;
+      }
+
+      statusEl.textContent = "Đang lưu lên Server...";
+      onlineDatabase.updatedAt = new Date().toISOString();
+      const jsonStr = JSON.stringify(onlineDatabase, null, 2);
+      const b64 = btoa(String.fromCharCode(...new TextEncoder().encode(jsonStr)));
+
+      const headers = {
+        "Accept": "application/vnd.github+json",
+        "Authorization": `Bearer ${token}`,
+        "Content-Type": "application/json"
+      };
+
+      // Lấy SHA mới nhất nếu chưa có
+      if (!currentFileSha) {
+        const getResp = await fetch(`https://api.github.com/repos/${REPO}/contents/${FILE_PATH}?ref=gh-pages`, { headers });
+        if (getResp.ok) {
+          const getJson = await getResp.json();
+          currentFileSha = getJson.sha;
+        }
+      }
+
+      const body = {
+        message: "Update licenses.json via gaulmt -Tech Web Admin",
+        content: b64,
+        branch: "gh-pages"
+      };
+      if (currentFileSha) body.sha = currentFileSha;
+
+      const putResp = await fetch(`https://api.github.com/repos/${REPO}/contents/${FILE_PATH}`, {
+        method: "PUT",
+        headers,
+        body: JSON.stringify(body)
+      });
+
+      if (putResp.ok) {
+        const resData = await putResp.json();
+        currentFileSha = resData.content.sha;
+        statusEl.textContent = "✅ " + (successNotice || "Đã cập nhật trạng thái Key lên Server!");
+      } else {
+        statusEl.textContent = "❌ Không thể lưu lên GitHub (Kiểm tra lại mã Token Admin).";
+      }
+    }
+
+    async function toggleLockKey(idx) {
+      const item = onlineDatabase.keys[idx];
+      if (!item) return;
+      item.status = (item.status === "active") ? "locked" : "active";
+      renderTable();
+      await saveOnlineDatabase(`Đã đổi trạng thái Key của "${item.owner}" thành: ${item.status.toUpperCase()}`);
+    }
+
+    async function extendKey30Days(idx) {
+      const item = onlineDatabase.keys[idx];
+      if (!item) return;
+      const { code8, isoDate } = getExpiryCodes("30");
+      item.expires = isoDate;
+      if (item.hwid && item.hwid !== "*") {
+        item.key = `GT-${code8}-${computeSignature(item.hwid, code8)}`;
+      }
+      renderTable();
+      await saveOnlineDatabase(`Đã gia hạn +30 ngày cho "${item.owner}"`);
+    }
+
+    async function deleteKey(idx) {
+      const item = onlineDatabase.keys[idx];
+      if (!item || !confirm(`Xoá Key của khách "${item.owner}" (${item.hwid})?`)) return;
+      onlineDatabase.keys.splice(idx, 1);
+      renderTable();
+      await saveOnlineDatabase(`Đã xoá Key của "${item.owner}".`);
+    }
+
+    function renderTable() {
+      const tbody = document.getElementById("keysTableBody");
+      if (!onlineDatabase.keys || onlineDatabase.keys.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:#777;">Chưa có Key nào</td></tr>`;
+        return;
+      }
+      tbody.innerHTML = onlineDatabase.keys.map((item, idx) => {
+        const isLocked = item.status !== "active";
+        const badge = isLocked
+          ? `<span class="status-locked">ĐÃ KHOÁ</span>`
+          : `<span class="status-active">HOẠT ĐỘNG</span>`;
+        const lockBtnText = isLocked ? "🔓 Mở" : "🔒 Khoá";
+        const lockBtnCls = isLocked ? "btn-success" : "btn-danger";
+        return `
+          <tr>
+            <td><b>${item.owner || "Khách"}</b></td>
+            <td style="font-family:monospace;color:#fff;">${item.hwid || ""}</td>
+            <td style="font-family:monospace;color:#dec882;">${item.key}</td>
+            <td>${item.expires}</td>
+            <td>${badge}</td>
+            <td style="display:flex;gap:6px;flex-wrap:wrap;">
+              <button class="btn btn-outline btn-sm" onclick="copyKeyText('${item.key}')">📋 Copy</button>
+              <button class="btn ${lockBtnCls} btn-sm" onclick="toggleLockKey(${idx})">${lockBtnText}</button>
+              <button class="btn btn-outline btn-sm" onclick="extendKey30Days(${idx})">+30 Ngày</button>
+              <button class="btn btn-danger btn-sm" onclick="deleteKey(${idx})">Xoá</button>
+            </td>
+          </tr>
+        `;
+      }).join("");
+    }
+  </script>
+</body>
+</html>
