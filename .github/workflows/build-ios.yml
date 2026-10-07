@@ -1,0 +1,57 @@
+name: Build ZTech iOS (Jailbreak .deb & TrollStore .tipa)
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build-ios:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Install Theos & Dependencies (ldid, dpkg)
+        run: |
+          brew install ldid dpkg
+          export THEOS=$HOME/theos
+          git clone --recursive https://github.com/theos/theos.git "$THEOS"
+          echo "THEOS=$THEOS" >> $GITHUB_ENV
+
+      - name: Build Rootless .deb (Dopamine / palera1n iOS 15-16+)
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/build_out"
+          if [ -f "ZTech_iOS/Makefile" ]; then cd ZTech_iOS; fi
+          chmod 0755 layout/DEBIAN/postinst
+          make clean package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless
+          cp packages/*.deb "$GITHUB_WORKSPACE/build_out/ZTech_Rootless_arm64.deb"
+
+      - name: Build Rootful .deb & TrollStore .tipa / .ipa
+        run: |
+          if [ -f "ZTech_iOS/Makefile" ]; then cd ZTech_iOS; fi
+          chmod 0755 layout/DEBIAN/postinst
+          rm -rf packages .theos
+          make clean package FINALPACKAGE=1
+          cp packages/*.deb "$GITHUB_WORKSPACE/build_out/ZTech_Rootful_arm.deb"
+
+          # Find built ZTech.app bundle and package as .tipa (TrollStore) and .ipa
+          mkdir -p "$GITHUB_WORKSPACE/build_out/Payload"
+          APP_PATH=$(find .theos -name "ZTech.app" -type d | head -n 1)
+          echo "Found app bundle at: $APP_PATH"
+          cp -r "$APP_PATH" "$GITHUB_WORKSPACE/build_out/Payload/ZTech.app"
+          cd "$GITHUB_WORKSPACE/build_out"
+          zip -r9 ZTech_TrollStore.tipa Payload
+          cp ZTech_TrollStore.tipa ZTech_App.ipa
+          rm -rf Payload
+
+      - name: Upload Built Packages (.deb, .tipa, .ipa)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZTech-iOS-Packages
+          path: |
+            build_out/*.deb
+            build_out/*.tipa
+            build_out/*.ipa
+          if-no-files-found: error

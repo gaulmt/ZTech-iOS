@@ -1,0 +1,9 @@
+Package: com.ztech.devicechanger
+Name: ZTech Device Manager
+Version: 1.0.0
+Architecture: iphoneos-arm
+Description: ZTech - Quan ly va dong bo thong so thiet bi tren iOS Jailbreak
+Maintainer: ZTech
+Author: ZTech
+Section: Utilities
+Depends: firmware (>= 14.0)
