@@ -74,7 +74,15 @@
     [self refreshUIWithCurrentProfile];
     [self updateLicenseUIState];
 
-    // Background online check on launch (auto-locks if Admin revoked or key expired)
+    // Background online check on launch & every time app enters foreground (auto-locks if Admin revoked or key expired)
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(onAppBecameActive)
+                                                 name:UIApplicationDidBecomeActiveNotification
+                                               object:nil];
+    [self onAppBecameActive];
+}
+
+- (void)onAppBecameActive {
     [ZTechLicenseManager refreshSavedLicenseInBackgroundWithCompletion:^(BOOL isValid, NSString * _Nonnull statusText) {
         [self updateLicenseUIState];
         if (!isValid && self.lockStatusMsgLabel) {
@@ -829,6 +837,7 @@
         [self updateLicenseUIState];
         return;
     }
+    [self onAppBecameActive];
 
     UIImpactFeedbackGenerator *gen = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleMedium];
     [gen impactOccurred];
@@ -856,6 +865,7 @@
         [self updateLicenseUIState];
         return;
     }
+    [self onAppBecameActive];
 
     UIImpactFeedbackGenerator *gen = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleHeavy];
     [gen impactOccurred];

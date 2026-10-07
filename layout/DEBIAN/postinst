@@ -1,14 +1,26 @@
 #!/bin/sh
+export PATH="/var/jb/usr/bin:/var/jb/bin:/var/jb/usr/sbin:/var/jb/sbin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+
 mkdir -p /Library/Preferences/ZTechShared /var/jb/Library/Preferences/ZTechShared >/dev/null 2>&1 || true
 chmod 0777 /Library/Preferences/ZTechShared /var/jb/Library/Preferences/ZTechShared >/dev/null 2>&1 || true
 
-if [ -x "/var/jb/usr/bin/uicache" ] && [ -d "/var/jb/Applications/ZTech.app" ]; then
-    /var/jb/usr/bin/uicache -p /var/jb/Applications/ZTech.app >/dev/null 2>&1 || true
+for APP_DIR in "/var/jb/Applications/ZTech.app" "/Applications/ZTech.app"; do
+    if [ -d "$APP_DIR" ]; then
+        chmod -R 0755 "$APP_DIR" >/dev/null 2>&1 || true
+        if [ -x "/var/jb/usr/bin/uicache" ]; then
+            /var/jb/usr/bin/uicache -p "$APP_DIR" >/dev/null 2>&1 || true
+        fi
+        if [ -x "/usr/bin/uicache" ]; then
+            /usr/bin/uicache -p "$APP_DIR" >/dev/null 2>&1 || true
+        fi
+    fi
+done
+
+if [ -x "/var/jb/usr/bin/uicache" ]; then
     /var/jb/usr/bin/uicache -a >/dev/null 2>&1 || true
-fi
-if [ -x "/usr/bin/uicache" ] && [ -d "/Applications/ZTech.app" ]; then
-    /usr/bin/uicache -p /Applications/ZTech.app >/dev/null 2>&1 || true
+elif [ -x "/usr/bin/uicache" ]; then
     /usr/bin/uicache -a >/dev/null 2>&1 || true
     /usr/bin/uicache >/dev/null 2>&1 || true
 fi
+
 exit 0
