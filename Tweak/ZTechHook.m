@@ -5,13 +5,17 @@
 #import <objc/runtime.h>
 #import <sys/utsname.h>
 #import <sys/sysctl.h>
+#import <sys/stat.h>
+#import <unistd.h>
 #import <dlfcn.h>
+#import <mach/mach.h>
+#import <mach/vm_map.h>
 #import <mach-o/dyld.h>
 #import <mach-o/loader.h>
 #import <mach-o/nlist.h>
 #import <string.h>
 
-#pragma mark - Embedded Fishhook (Mach-O Symbol Rebinding for AIDA64 & Apps)
+#pragma mark - Safe Embedded Fishhook (App Binary Only + vm_protect)
 
 #ifdef __LP64__
 typedef struct mach_header_64 mach_header_t;
@@ -47,6 +51,15 @@ static void perform_rebinding_with_section(section_t *section,
                                            uint32_t *indirect_symtab) {
     uint32_t *indirect_symbol_indices = indirect_symtab + section->reserved1;
     void **indirect_symbol_bindings = (void **)((uintptr_t)slide + section->addr);
+
+    // Ensure memory page is writable before modifying symbol pointers (prevents EXC_BAD_ACCESS on iOS 15+)
+    vm_address_t page_start = (vm_address_t)indirect_symbol_bindings & ~(vm_address_t)(PAGE_SIZE - 1);
+    vm_size_t page_len = (((vm_address_t)indirect_symbol_bindings + section->size) - page_start + PAGE_SIZE - 1) & ~(vm_size_t)(PAGE_SIZE - 1);
+    kern_return_t kr = vm_protect(mach_task_self(), page_start, page_len, FALSE, VM_PROT_READ | VM_PROT_WRITE | VM_PROT_COPY);
+    if (kr != KERN_SUCCESS) {
+        return;
+    }
+
     for (uint i = 0; i < section->size / sizeof(void *); i++) {
         uint32_t symtab_index = indirect_symbol_indices[i];
         if (symtab_index == INDIRECT_SYMBOL_ABS || symtab_index == INDIRECT_SYMBOL_LOCAL ||
@@ -71,7 +84,13 @@ static void perform_rebinding_with_section(section_t *section,
 
 static void rebind_symbols_for_image(const struct mach_header *header, intptr_t slide) {
     Dl_info info;
-    if (dladdr(header, &info) == 0) return;
+    if (dladdr(header, &info) == 0 || !info.dli_fname) return;
+
+    // CRITICAL: Only rebind Mach-O images inside the target App bundle (/Application/).
+    // Never touch dyld shared cache system frameworks (/System/Library/... or /usr/lib/...).
+    if (strstr(info.dli_fname, "/Application/") == NULL) {
+        return;
+    }
 
     segment_command_t *cur_seg_cmd;
     segment_command_t *linkedit_segment = NULL;
@@ -147,7 +166,10 @@ static NSDictionary *ZTechNormalizeProfile(NSDictionary *raw) {
 }
 
 static NSDictionary *ZTechLoadProfile(void) {
-    // 1. Read from Global CFPreferences (.GlobalPreferences) accessible inside all sandboxed App Store apps
+    if (gCachedProfile) {
+        return gCachedProfile;
+    }
+
     CFPropertyListRef cfVal = CFPreferencesCopyAppValue(CFSTR("ZTechGlobalProfile"), kCFPreferencesAnyApplication);
     if (cfVal) {
         if (CFGetTypeID(cfVal) == CFDictionaryGetTypeID()) {
@@ -158,7 +180,6 @@ static NSDictionary *ZTechLoadProfile(void) {
         CFRelease(cfVal);
     }
 
-    // 2. Read from shared plist paths
     NSArray<NSString *> *paths = @[
         @"/Library/Preferences/ZTechShared/com.ztech.profile.plist",
         @"/var/jb/Library/Preferences/ZTechShared/com.ztech.profile.plist",
@@ -174,10 +195,7 @@ static NSDictionary *ZTechLoadProfile(void) {
         }
     }
 
-    // 3. Guaranteed fallback (>= iPhone 8 & >= iOS 16.0)
-    if (!gCachedProfile) {
-        gCachedProfile = ZTechNormalizeProfile(nil);
-    }
+    gCachedProfile = ZTechNormalizeProfile(nil);
     return gCachedProfile;
 }
 
@@ -298,7 +316,7 @@ static NSUUID *swizzled_identifierForVendor(id self, SEL _cmd) {
         NSUUID *u = [[NSUUID alloc] initWithUUIDString:uuidStr];
         if (u) return u;
     }
-    return orig_identifierForVendor(self, _cmd);
+    return orig_identifierForVendor ? orig_identifierForVendor(self, _cmd) : [NSUUID UUID];
 }
 
 static NSOperatingSystemVersion (*orig_osVersion)(id, SEL) = NULL;
@@ -327,102 +345,121 @@ static unsigned long long swizzled_physicalMemory(id self, SEL _cmd) {
     return (unsigned long long)ramGB * 1024ULL * 1024ULL * 1024ULL;
 }
 
-#pragma mark - In-Process App Data & Keychain Reset
+#pragma mark - Safe Container Repair & In-Process Reset
 
-static void ZTechWipeSubfolder(NSString *folderPath) {
+static void ZTechEnsureContainerDirectoriesExist(NSString *home) {
+    if (!home || home.length == 0) return;
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSArray<NSString *> *requiredDirs = @[
+        @"Documents",
+        @"tmp",
+        @"SystemData",
+        @"Library",
+        @"Library/Caches",
+        @"Library/Preferences",
+        @"Library/Cookies",
+        @"Library/Application Support",
+        @"Library/SplashBoard"
+    ];
+    for (NSString *sub in requiredDirs) {
+        NSString *p = [home stringByAppendingPathComponent:sub];
+        if (![fm fileExistsAtPath:p]) {
+            [fm createDirectoryAtPath:p withIntermediateDirectories:YES attributes:nil error:nil];
+        }
+        chmod([p UTF8String], 0777);
+    }
+    NSString *globalPrefsLink = [home stringByAppendingPathComponent:@"Library/Preferences/.GlobalPreferences.plist"];
+    if (![fm fileExistsAtPath:globalPrefsLink]) {
+        symlink("/private/var/mobile/Library/Preferences/.GlobalPreferences.plist", [globalPrefsLink UTF8String]);
+    }
+}
+
+static void ZTechWipeSubfolderContentsOnly(NSString *folderPath) {
     NSFileManager *fm = [NSFileManager defaultManager];
     NSArray<NSString *> *items = [fm contentsOfDirectoryAtPath:folderPath error:nil];
     for (NSString *item in items) {
-        if ([item isEqualToString:@"_zt_last_reset_token.txt"]) continue;
+        if ([item isEqualToString:@"_zt_last_reset_token.txt"] ||
+            [item hasPrefix:@".GlobalPreferences"] ||
+            [item hasPrefix:@".com.apple."] ||
+            [item isEqualToString:@"SplashBoard"] ||
+            [item isEqualToString:@"Caches"] ||
+            [item isEqualToString:@"Preferences"]) {
+            continue;
+        }
         [fm removeItemAtPath:[folderPath stringByAppendingPathComponent:item] error:nil];
     }
 }
 
 static void ZTechCheckAndPerformInAppReset(NSString *bundleId) {
-    CFTypeRef cfToken = CFPreferencesCopyAppValue(CFSTR("ZTechResetToken"), kCFPreferencesAnyApplication);
-    NSString *globalToken = nil;
-    if (cfToken && CFGetTypeID(cfToken) == CFStringGetTypeID()) {
-        globalToken = [(__bridge NSString *)cfToken copy];
-    }
-    if (cfToken) CFRelease(cfToken);
-
-    if (!globalToken || globalToken.length == 0) {
-        NSDictionary *prof = ZTechLoadProfile();
-        globalToken = prof[@"identifier"];
-    }
-    if (!globalToken || globalToken.length == 0) return;
-
-    NSString *home = NSHomeDirectory();
-    NSString *tokenFile = [home stringByAppendingPathComponent:@"Documents/_zt_last_reset_token.txt"];
-    NSString *lastToken = [NSString stringWithContentsOfFile:tokenFile encoding:NSUTF8StringEncoding error:nil];
-
-    if (!lastToken || ![lastToken isEqualToString:globalToken]) {
-        // 1. Wipe all Keychain items owned by this app's entitlements (Zalo stores device_id & login token here!)
-        NSArray *secClasses = @[
-            (__bridge id)kSecClassGenericPassword,
-            (__bridge id)kSecClassInternetPassword,
-            (__bridge id)kSecClassCertificate,
-            (__bridge id)kSecClassKey,
-            (__bridge id)kSecClassIdentity
-        ];
-        for (id secClass in secClasses) {
-            NSDictionary *query = @{(__bridge id)kSecClass: secClass};
-            SecItemDelete((__bridge CFDictionaryRef)query);
+    @try {
+        NSString *lowerBundle = [bundleId lowercaseString];
+        // Only run container/keychain wipe on target social/shopping apps (Zalo, TikTok, Shopee, Facebook)
+        if (![lowerBundle containsString:@"zalo"] &&
+            ![lowerBundle containsString:@"vng"] &&
+            ![lowerBundle containsString:@"tiktok"] &&
+            ![lowerBundle containsString:@"musical"] &&
+            ![lowerBundle containsString:@"shopee"]) {
+            return;
         }
 
-        // 2. Wipe NSUserDefaults persistent domain for this app
-        if (bundleId.length > 0) {
-            [[NSUserDefaults standardUserDefaults] removePersistentDomainForName:bundleId];
-            [[NSUserDefaults standardUserDefaults] synchronize];
-        }
+        NSString *home = NSHomeDirectory();
+        ZTechEnsureContainerDirectoriesExist(home);
 
-        // 3. Wipe HTTP Cookies & URLCache
-        NSHTTPCookieStorage *cookieStorage = [NSHTTPCookieStorage sharedHTTPCookieStorage];
-        for (NSHTTPCookie *cookie in [cookieStorage.cookies copy]) {
-            [cookieStorage deleteCookie:cookie];
+        CFTypeRef cfToken = CFPreferencesCopyAppValue(CFSTR("ZTechResetToken"), kCFPreferencesAnyApplication);
+        NSString *globalToken = nil;
+        if (cfToken && CFGetTypeID(cfToken) == CFStringGetTypeID()) {
+            globalToken = [(__bridge NSString *)cfToken copy];
         }
-        [[NSURLCache sharedURLCache] removeAllCachedResponses];
+        if (cfToken) CFRelease(cfToken);
 
-        // 4. Wipe local sandbox folders (Documents, tmp, Library/Caches, Library/Application Support, Library/Cookies, Library/WebKit)
-        NSArray<NSString *> *subDirs = @[
-            @"Documents",
-            @"tmp",
-            @"Library/Caches",
-            @"Library/Cookies",
-            @"Library/WebKit",
-            @"Library/Application Support",
-            @"Library/Saved Application State"
-        ];
-        for (NSString *sub in subDirs) {
-            ZTechWipeSubfolder([home stringByAppendingPathComponent:sub]);
-        }
+        if (!globalToken || globalToken.length == 0) return;
 
-        // 5. Wipe Shared AppGroup container from inside the app's own entitlement context
-        NSArray<NSString *> *appGroups = @[
-            @"group.com.vng.zalo",
-            @"group.vn.com.vng.zalo",
-            @"group.com.vng.zalo.share",
-            [NSString stringWithFormat:@"group.%@", bundleId]
-        ];
-        NSFileManager *fm = [NSFileManager defaultManager];
-        for (NSString *groupId in appGroups) {
-            NSURL *groupURL = [fm containerURLForSecurityApplicationGroupIdentifier:groupId];
-            if (groupURL && groupURL.path.length > 0) {
-                ZTechWipeSubfolder(groupURL.path);
-                ZTechWipeSubfolder([groupURL.path stringByAppendingPathComponent:@"Library/Preferences"]);
-                ZTechWipeSubfolder([groupURL.path stringByAppendingPathComponent:@"Library/Caches"]);
-                ZTechWipeSubfolder([groupURL.path stringByAppendingPathComponent:@"Documents"]);
+        NSString *tokenFile = [home stringByAppendingPathComponent:@"Documents/_zt_last_reset_token.txt"];
+        NSString *lastToken = [NSString stringWithContentsOfFile:tokenFile encoding:NSUTF8StringEncoding error:nil];
+
+        if (!lastToken || ![lastToken isEqualToString:globalToken]) {
+            // 1. Wipe Keychain items owned by this app
+            NSArray *secClasses = @[
+                (__bridge id)kSecClassGenericPassword,
+                (__bridge id)kSecClassInternetPassword,
+                (__bridge id)kSecClassCertificate,
+                (__bridge id)kSecClassKey,
+                (__bridge id)kSecClassIdentity
+            ];
+            for (id secClass in secClasses) {
+                NSDictionary *query = @{(__bridge id)kSecClass: secClass};
+                SecItemDelete((__bridge CFDictionaryRef)query);
             }
-        }
 
-        // 6. Save current reset token so we don't wipe again until next reset
-        [globalToken writeToFile:tokenFile atomically:YES encoding:NSUTF8StringEncoding error:nil];
+            // 2. Wipe NSUserDefaults persistent domain for this app
+            if (bundleId.length > 0) {
+                [[NSUserDefaults standardUserDefaults] removePersistentDomainForName:bundleId];
+                [[NSUserDefaults standardUserDefaults] synchronize];
+            }
+
+            // 3. Wipe contents of Documents, tmp, Library/Caches, Library/Application Support (keeping directory structure intact!)
+            NSArray<NSString *> *subDirs = @[
+                @"Documents",
+                @"tmp",
+                @"Library/Caches",
+                @"Library/Cookies",
+                @"Library/WebKit",
+                @"Library/Application Support"
+            ];
+            for (NSString *sub in subDirs) {
+                ZTechWipeSubfolderContentsOnly([home stringByAppendingPathComponent:sub]);
+            }
+
+            // 4. Repair directories again & write token
+            ZTechEnsureContainerDirectoriesExist(home);
+            [globalToken writeToFile:tokenFile atomically:YES encoding:NSUTF8StringEncoding error:nil];
+        }
+    } @catch (NSException *exception) {
+        // Never allow reset logic to crash the host application
     }
 }
 
 #pragma mark - Constructor
-
-typedef void (*MSHookFunction_t)(void *symbol, void *replace, void **result);
 
 __attribute__((constructor))
 static void ZTechHookInit(void) {
@@ -430,20 +467,25 @@ static void ZTechHookInit(void) {
         NSString *bundleId = [[NSBundle mainBundle] bundleIdentifier];
         NSString *bundlePath = [[NSBundle mainBundle] bundlePath];
 
-        if (!bundleId ||
+        // Only inject into full .app bundles inside /Application/ (never .appex keyboard/pasteboard extensions or ZTech itself)
+        if (!bundleId || !bundlePath ||
             [bundleId isEqualToString:@"com.ztech.devicechanger"] ||
             [bundleId hasPrefix:@"com.apple."] ||
-            ![bundlePath containsString:@"/Application"]) {
+            ![bundlePath containsString:@"/Application"] ||
+            ![bundlePath hasSuffix:@".app"]) {
             return;
         }
 
+        // Always ensure container directories exist first (repairs Zalo if previous reset deleted Library/ or SystemData/)
+        ZTechEnsureContainerDirectoriesExist(NSHomeDirectory());
+
+        // Check license status (default to YES if not yet initialized so apps never crash)
         Boolean keyExists = false;
         Boolean isLicenseValid = CFPreferencesGetAppBooleanValue(CFSTR("ZTechLicenseValid"), kCFPreferencesAnyApplication, &keyExists);
-        if (!keyExists || !isLicenseValid) {
+        if (keyExists && !isLicenseValid) {
             return;
         }
 
-        [[UIDevice currentDevice] setBatteryMonitoringEnabled:YES];
         ZTechLoadProfile();
         ZTechCheckAndPerformInAppReset(bundleId);
 
@@ -486,7 +528,7 @@ static void ZTechHookInit(void) {
             method_setImplementation(mPhysMem, (IMP)swizzled_physicalMemory);
         }
 
-        // 2. Mach-O Symbol Rebinding (Fishhook) across all loaded images (catches AIDA64 C/C++ calls)
+        // 2. Safe Mach-O Symbol Rebinding (App Binary Only + vm_protect)
         orig_uname = dlsym(RTLD_DEFAULT, "uname");
         orig_sysctlbyname = dlsym(RTLD_DEFAULT, "sysctlbyname");
         orig_sysctl = dlsym(RTLD_DEFAULT, "sysctl");
@@ -499,31 +541,5 @@ static void ZTechHookInit(void) {
         gRebindingsCount = 4;
 
         _dyld_register_func_for_add_image(rebind_symbols_for_image);
-
-        // 3. Also hook via ElleKit / Substrate if loaded
-        const char *hookLibs[] = {
-            "/var/jb/usr/lib/libellekit.dylib",
-            "/var/jb/Library/Frameworks/CydiaSubstrate.framework/CydiaSubstrate",
-            "/Library/Frameworks/CydiaSubstrate.framework/CydiaSubstrate",
-            "/usr/lib/libsubstitute.dylib",
-            "/usr/lib/libsubstrate.dylib"
-        };
-        MSHookFunction_t pMSHookFunction = NULL;
-        for (size_t i = 0; i < sizeof(hookLibs) / sizeof(hookLibs[0]); i++) {
-            void *handle = dlopen(hookLibs[i], RTLD_NOW | RTLD_NOLOAD);
-            if (!handle) handle = dlopen(hookLibs[i], RTLD_NOW);
-            if (handle) {
-                pMSHookFunction = (MSHookFunction_t)dlsym(handle, "MSHookFunction");
-                if (pMSHookFunction) break;
-            }
-        }
-        if (pMSHookFunction) {
-            void *symUname = dlsym(RTLD_DEFAULT, "uname");
-            if (symUname) pMSHookFunction(symUname, (void *)hooked_uname, (void **)&orig_uname);
-            void *symSysctlName = dlsym(RTLD_DEFAULT, "sysctlbyname");
-            if (symSysctlName) pMSHookFunction(symSysctlName, (void *)hooked_sysctlbyname, (void **)&orig_sysctlbyname);
-            void *symSysctl = dlsym(RTLD_DEFAULT, "sysctl");
-            if (symSysctl) pMSHookFunction(symSysctl, (void *)hooked_sysctl, (void **)&orig_sysctl);
-        }
     }
 }

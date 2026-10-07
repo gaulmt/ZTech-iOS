@@ -1,8 +1,8 @@
 Package: com.ztech.devicechanger
 Name: gaulmt -Tech
-Version: 4.4.0
+Version: 4.5.0
 Architecture: iphoneos-arm
-Description: gaulmt -Tech v4.4 - App + Tweak Hook + Upstash Real-Time Key (Thu hoi tuc thi) + Fix Icon Man Hinh
+Description: gaulmt -Tech v4.5 - Fix Crash Zalo & Fix Crash Nhap Key + Kich hoat 1-Cham qua Upstash Redis
 Maintainer: gaulmt -Tech
 Author: gaulmt -Tech
 Section: Utilities

@@ -13,6 +13,7 @@ static NSString * const kZTechSavedValidPref  = @"ZTechSavedLicenseValid_v1";
 static NSString * const kUpstashRedisURL      = @"https://right-cat-209639.upstash.io";
 static NSString * const kUpstashRedisToken    = @"gQAAAAAAAzLnAAIgcDFiYzU0NDBiOGJmYzE0OTFmYWQ2YTUzYTg4M2MwYmNlNA";
 static NSString * const kRedisHashKey         = @"ztech:licenses";
+static NSString * const kRedisPendingHashKey  = @"ztech:pending_devices";
 
 @implementation ZTechLicenseManager
 
@@ -49,7 +50,7 @@ static NSString * const kRedisHashKey         = @"ztech:licenses";
         return udVal;
     }
 
-    NSString *chars = @"0123456789ABCDEFGHJKLMNPQRSTUVWXYZ";
+    NSString *chars = @"23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
     NSMutableString *p1 = [NSMutableString stringWithCapacity:4];
     NSMutableString *p2 = [NSMutableString stringWithCapacity:4];
     for (int i = 0; i < 4; i++) {
@@ -124,7 +125,7 @@ static NSString * const kRedisHashKey         = @"ztech:licenses";
     [self syncLicenseStateWithHook:YES];
 }
 
-#pragma mark - Upstash Redis Real-Time Verification & Auto HWID Binding
+#pragma mark - Upstash Redis Real-Time Verification & Auto HWID Lookup
 
 + (void)executeUpstashCommand:(NSArray *)commandArray
                    completion:(void (^)(id _Nullable resultObj, NSError * _Nullable error))completion {
@@ -148,42 +149,72 @@ static NSString * const kRedisHashKey         = @"ztech:licenses";
     }] resume];
 }
 
++ (void)registerPendingDeviceInUpstash:(NSString *)hwid {
+    NSISO8601DateFormatter *iso = [[NSISO8601DateFormatter alloc] init];
+    NSDictionary *info = @{
+        @"hwid": hwid,
+        @"requestedAt": [iso stringFromDate:[NSDate date]]
+    };
+    NSData *d = [NSJSONSerialization dataWithJSONObject:info options:0 error:nil];
+    NSString *s = [[NSString alloc] initWithData:d encoding:NSUTF8StringEncoding];
+    if (s) {
+        [self executeUpstashCommand:@[@"HSET", kRedisPendingHashKey, hwid, s] completion:nil];
+    }
+}
+
 + (void)verifyAndActivateKey:(NSString *)rawKey
                   completion:(ZTechLicenseVerifyCompletion)completion {
-    NSString *cleanKey = [[rawKey uppercaseString] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-    if (cleanKey.length < 4) {
-        [self syncLicenseStateWithHook:NO];
-        if (completion) completion(NO, @"Vui lòng nhập mã Key hợp lệ!", nil, nil);
-        return;
-    }
-
+    NSString *cleanKey = [[rawKey ?: @"" uppercaseString] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
     NSString *myHwid = [self deviceHardwareID];
 
-    // Query Upstash Redis directly: ["HGET", "ztech:licenses", cleanKey]
-    [self executeUpstashCommand:@[@"HGET", kRedisHashKey, cleanKey] completion:^(id  _Nullable resultObj, NSError * _Nullable error) {
+    // Fetch all licenses in ztech:licenses so we can match EITHER by entered Key OR automatically by Device HWID!
+    [self executeUpstashCommand:@[@"HGETALL", kRedisHashKey] completion:^(id  _Nullable resultObj, NSError * _Nullable error) {
         dispatch_async(dispatch_get_main_queue(), ^{
-            if (error) {
-                if (completion) completion(NO, @"Lỗi kết nối mạng tới máy chủ bản quyền. Vui lòng kiểm tra Internet!", nil, nil);
+            if (error || ![resultObj isKindOfClass:[NSArray class]]) {
+                if (completion) completion(NO, @"Lỗi kết nối mạng tới Upstash Redis. Vui lòng kiểm tra Internet!", nil, nil);
                 return;
             }
 
-            if (!resultObj || [resultObj isKindOfClass:[NSNull class]] || ![resultObj isKindOfClass:[NSString class]]) {
-                [self syncLicenseStateWithHook:NO];
-                if (completion) completion(NO, @"Mã Key không tồn tại hoặc đã bị Admin xoá khỏi hệ thống!", nil, nil);
-                return;
+            NSArray *rawArr = (NSArray *)resultObj;
+            NSDictionary *matchedEntry = nil;
+            NSString *matchedKeyName = nil;
+
+            for (NSUInteger i = 0; i + 1 < rawArr.count; i += 2) {
+                NSString *kName = [rawArr[i] isKindOfClass:[NSString class]] ? rawArr[i] : @"";
+                NSString *valStr = [rawArr[i + 1] isKindOfClass:[NSString class]] ? rawArr[i + 1] : @"";
+                NSData *d = [valStr dataUsingEncoding:NSUTF8StringEncoding];
+                NSDictionary *parsed = d ? [NSJSONSerialization JSONObjectWithData:d options:0 error:nil] : nil;
+                if (![parsed isKindOfClass:[NSDictionary class]]) continue;
+
+                NSString *entryKey = [[parsed[@"key"] ?: kName uppercaseString] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+                NSString *entryHwid = [[parsed[@"hwid"] ?: @"" uppercaseString] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+
+                // Priority 1: Exact Key match if user entered a Key
+                if (cleanKey.length > 0 && [entryKey isEqualToString:cleanKey]) {
+                    matchedEntry = parsed;
+                    matchedKeyName = entryKey;
+                    break;
+                }
+                // Priority 2: Automatic HWID match (User doesn't even need to type/paste the Key if Admin bound their HWID!)
+                if ([entryHwid isEqualToString:myHwid]) {
+                    matchedEntry = parsed;
+                    matchedKeyName = entryKey;
+                }
             }
 
-            NSString *jsonStr = (NSString *)resultObj;
-            NSData *jsonData = [jsonStr dataUsingEncoding:NSUTF8StringEncoding];
-            NSDictionary *entry = jsonData ? [NSJSONSerialization JSONObjectWithData:jsonData options:0 error:nil] : nil;
-            if (!entry || ![entry isKindOfClass:[NSDictionary class]]) {
+            if (!matchedEntry || !matchedKeyName) {
                 [self syncLicenseStateWithHook:NO];
-                if (completion) completion(NO, @"Dữ liệu Key trên máy chủ không hợp lệ!", nil, nil);
+                [self registerPendingDeviceInUpstash:myHwid];
+                if (cleanKey.length == 0) {
+                    if (completion) completion(NO, [NSString stringWithFormat:@"Mã máy %@ đã gửi lên hệ thống chờ duyệt!\nBấm mở khoá trên Web Admin rồi nhấn lại nút này.", myHwid], nil, nil);
+                } else {
+                    if (completion) completion(NO, @"Mã Key không tồn tại hoặc đã bị Admin xoá khỏi hệ thống!", nil, nil);
+                }
                 return;
             }
 
             // 1. Check if Admin locked/revoked this key
-            NSString *status = [entry[@"status"] ?: @"active" lowercaseString];
+            NSString *status = [matchedEntry[@"status"] ?: @"active" lowercaseString];
             if (![status isEqualToString:@"active"]) {
                 [self syncLicenseStateWithHook:NO];
                 if (completion) completion(NO, @"⛔ Key này đã bị Admin THU HỒI hoặc KHOÁ từ xa!", nil, nil);
@@ -191,7 +222,7 @@ static NSString * const kRedisHashKey         = @"ztech:licenses";
             }
 
             // 2. Check expiration date (YYYY-MM-DD or LIFETIME)
-            NSString *expiresStr = [entry[@"expires"] ?: @"LIFETIME" uppercaseString];
+            NSString *expiresStr = [matchedEntry[@"expires"] ?: @"LIFETIME" uppercaseString];
             if (![expiresStr isEqualToString:@"LIFETIME"] && ![expiresStr isEqualToString:@"VINHVIEN"]) {
                 NSDateFormatter *df = [[NSDateFormatter alloc] init];
                 df.dateFormat = @"yyyy-MM-dd";
@@ -208,13 +239,12 @@ static NSString * const kRedisHashKey         = @"ztech:licenses";
             }
 
             // 3. Check 1-Key-1-Device HWID Binding
-            NSString *boundHwid = [[entry[@"hwid"] ?: @"" uppercaseString] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-            NSString *owner = entry[@"owner"] ?: @"Khách VIP";
+            NSString *boundHwid = [[matchedEntry[@"hwid"] ?: @"" uppercaseString] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+            NSString *owner = matchedEntry[@"owner"] ?: @"Khách VIP";
             NSString *expDisplay = ([expiresStr isEqualToString:@"LIFETIME"] || [expiresStr isEqualToString:@"VINHVIEN"]) ? @"Vĩnh viễn" : expiresStr;
 
             if (boundHwid.length == 0) {
-                // First time activation! Bind this device's HWID to the key in Upstash Redis immediately
-                NSMutableDictionary *updatedEntry = [entry mutableCopy];
+                NSMutableDictionary *updatedEntry = [matchedEntry mutableCopy];
                 updatedEntry[@"hwid"] = myHwid;
                 NSISO8601DateFormatter *iso = [[NSISO8601DateFormatter alloc] init];
                 updatedEntry[@"activatedAt"] = [iso stringFromDate:[NSDate date]];
@@ -222,36 +252,30 @@ static NSString * const kRedisHashKey         = @"ztech:licenses";
                 NSData *updatedData = [NSJSONSerialization dataWithJSONObject:updatedEntry options:0 error:nil];
                 NSString *updatedJsonStr = [[NSString alloc] initWithData:updatedData encoding:NSUTF8StringEncoding];
 
-                [self executeUpstashCommand:@[@"HSET", kRedisHashKey, cleanKey, updatedJsonStr] completion:^(id  _Nullable res2, NSError * _Nullable err2) {
+                [self executeUpstashCommand:@[@"HSET", kRedisHashKey, matchedKeyName, updatedJsonStr] completion:^(id  _Nullable res2, NSError * _Nullable err2) {
+                    [self executeUpstashCommand:@[@"HDEL", kRedisPendingHashKey, myHwid] completion:nil];
                     dispatch_async(dispatch_get_main_queue(), ^{
-                        [self persistValidKey:cleanKey owner:owner expiryText:expDisplay];
-                        if (completion) completion(YES, [NSString stringWithFormat:@"Kích hoạt thành công! Đã khoá cứng Key vào máy %@", myHwid], owner, expDisplay);
+                        [self persistValidKey:matchedKeyName owner:owner expiryText:expDisplay];
+                        if (completion) completion(YES, [NSString stringWithFormat:@"Kích hoạt thành công! Đã khoá cứng vào máy %@", myHwid], owner, expDisplay);
                     });
                 }];
                 return;
             } else if (![boundHwid isEqualToString:@"*"] && ![boundHwid isEqualToString:myHwid]) {
-                // Bound to a different device!
                 [self syncLicenseStateWithHook:NO];
                 NSString *errMsg = [NSString stringWithFormat:@"⛔ Key này đã gắn cứng với thiết bị khác (%@)!\nMã máy của bạn là: %@", boundHwid, myHwid];
                 if (completion) completion(NO, errMsg, nil, nil);
                 return;
             }
 
-            // Valid & matches this device!
-            [self persistValidKey:cleanKey owner:owner expiryText:expDisplay];
+            [self executeUpstashCommand:@[@"HDEL", kRedisPendingHashKey, myHwid] completion:nil];
+            [self persistValidKey:matchedKeyName owner:owner expiryText:expDisplay];
             if (completion) completion(YES, @"Xác thực bản quyền thành công!", owner, expDisplay);
         });
     }];
 }
 
 + (void)refreshSavedLicenseInBackgroundWithCompletion:(void (^)(BOOL isValid, NSString *statusText))completion {
-    NSString *savedKey = [self savedLicenseKey];
-    if (!savedKey || savedKey.length == 0) {
-        [self syncLicenseStateWithHook:NO];
-        if (completion) completion(NO, @"Chưa kích hoạt bản quyền");
-        return;
-    }
-
+    NSString *savedKey = [self savedLicenseKey] ?: @"";
     [self verifyAndActivateKey:savedKey completion:^(BOOL isValid, NSString * _Nonnull message, NSString * _Nullable ownerName, NSString * _Nullable expiryText) {
         if (completion) {
             completion(isValid, isValid ? [self licenseStatusSummary] : message);

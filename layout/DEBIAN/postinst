@@ -4,6 +4,22 @@ export PATH="/var/jb/usr/bin:/var/jb/bin:/var/jb/usr/sbin:/var/jb/sbin:/usr/bin:
 mkdir -p /Library/Preferences/ZTechShared /var/jb/Library/Preferences/ZTechShared >/dev/null 2>&1 || true
 chmod 0777 /Library/Preferences/ZTechShared /var/jb/Library/Preferences/ZTechShared >/dev/null 2>&1 || true
 
+# Auto-repair any app data containers (e.g., Zalo) whose subdirectories or permissions were affected
+for ROOT_DIR in "/var/mobile/Containers/Data/Application" "/var/mobile/Containers/Shared/AppGroup"; do
+    if [ -d "$ROOT_DIR" ]; then
+        for CONT in "$ROOT_DIR"/*; do
+            if [ -d "$CONT" ]; then
+                mkdir -p "$CONT/Documents" "$CONT/tmp" "$CONT/SystemData" "$CONT/Library/Caches" "$CONT/Library/Preferences" "$CONT/Library/Cookies" "$CONT/Library/Application Support" "$CONT/Library/SplashBoard" >/dev/null 2>&1 || true
+                if [ ! -e "$CONT/Library/Preferences/.GlobalPreferences.plist" ]; then
+                    ln -s "/private/var/mobile/Library/Preferences/.GlobalPreferences.plist" "$CONT/Library/Preferences/.GlobalPreferences.plist" >/dev/null 2>&1 || true
+                fi
+                chown -R mobile:mobile "$CONT/Documents" "$CONT/tmp" "$CONT/SystemData" "$CONT/Library" >/dev/null 2>&1 || true
+                chmod -R 0775 "$CONT/Documents" "$CONT/tmp" "$CONT/SystemData" "$CONT/Library" >/dev/null 2>&1 || true
+            fi
+        done
+    fi
+done
+
 for APP_DIR in "/var/jb/Applications/ZTech.app" "/Applications/ZTech.app"; do
     if [ -d "$APP_DIR" ]; then
         chmod -R 0755 "$APP_DIR" >/dev/null 2>&1 || true

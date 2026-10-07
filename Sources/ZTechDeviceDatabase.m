@@ -412,13 +412,45 @@ extern char **environ;
     NSInteger count = 0;
     NSArray *items = [fm contentsOfDirectoryAtPath:dirPath error:nil];
     for (NSString *item in items) {
-        if ([item isEqualToString:@".com.apple.mobile_container_manager.metadata.plist"]) continue;
+        if ([item isEqualToString:@".com.apple.mobile_container_manager.metadata.plist"] ||
+            [item hasPrefix:@".GlobalPreferences"] ||
+            [item hasPrefix:@"com.apple."] ||
+            [item isEqualToString:@"_zt_last_reset_token.txt"]) {
+            continue;
+        }
         NSString *fullPath = [dirPath stringByAppendingPathComponent:item];
         if ([fm removeItemAtPath:fullPath error:nil]) {
             count++;
         }
     }
     return count;
+}
+
++ (void)repairContainerStructureAtPath:(NSString *)containerPath fileManager:(NSFileManager *)fm {
+    NSArray<NSString *> *requiredSubDirs = @[
+        @"Documents",
+        @"tmp",
+        @"SystemData",
+        @"Library",
+        @"Library/Caches",
+        @"Library/Preferences",
+        @"Library/Cookies",
+        @"Library/Application Support",
+        @"Library/SplashBoard"
+    ];
+    for (NSString *sub in requiredSubDirs) {
+        NSString *p = [containerPath stringByAppendingPathComponent:sub];
+        if (![fm fileExistsAtPath:p]) {
+            [fm createDirectoryAtPath:p withIntermediateDirectories:YES attributes:nil error:nil];
+        }
+        chown([p UTF8String], 501, 501);
+        chmod([p UTF8String], 0777);
+    }
+    NSString *globalPrefsLink = [containerPath stringByAppendingPathComponent:@"Library/Preferences/.GlobalPreferences.plist"];
+    if (![fm fileExistsAtPath:globalPrefsLink]) {
+        symlink("/private/var/mobile/Library/Preferences/.GlobalPreferences.plist", [globalPrefsLink UTF8String]);
+        lchown([globalPrefsLink UTF8String], 501, 501);
+    }
 }
 
 + (NSInteger)cleanResetAllProfileDataAndCache {
@@ -438,8 +470,7 @@ extern char **environ;
         }
     }
 
-    // 2. Scan and clean matching Data Containers (/var/mobile/Containers/Data/Application)
-    //    and Shared AppGroups (/var/mobile/Containers/Shared/AppGroup)
+    // 2. Scan and safely clean contents inside subdirectories of Data Containers & AppGroups (never deleting top-level container directories)
     NSArray<NSString *> *containerRoots = @[
         @"/var/mobile/Containers/Data/Application",
         @"/private/var/mobile/Containers/Data/Application",
@@ -455,6 +486,7 @@ extern char **environ;
             NSDictionary *meta = [NSDictionary dictionaryWithContentsOfFile:metaPath];
             NSString *bundleId = [meta[@"MCMMetadataIdentifier"] lowercaseString];
             if ([bundleId containsString:@"zalo"] || [bundleId containsString:@"vng"]) {
+                [self repairContainerStructureAtPath:containerPath fileManager:fm];
                 NSArray<NSString *> *subDirs = @[@"Documents", @"tmp", @"Library/Caches", @"Library/Cookies", @"Library/Preferences", @"Library/WebKit", @"Library/Application Support"];
                 for (NSString *sub in subDirs) {
                     NSString *targetSub = [containerPath stringByAppendingPathComponent:sub];
@@ -462,14 +494,7 @@ extern char **environ;
                         cleanedItems += [self cleanDirectoryContents:targetSub fileManager:fm];
                     }
                 }
-                cleanedItems += [self cleanDirectoryContents:containerPath fileManager:fm];
-                // Recreate standard empty container subdirectories
-                for (NSString *sub in @[@"Documents", @"Library", @"Library/Caches", @"Library/Preferences", @"tmp"]) {
-                    [fm createDirectoryAtPath:[containerPath stringByAppendingPathComponent:sub]
-                  withIntermediateDirectories:YES
-                                   attributes:@{NSFilePosixPermissions: @(0755)}
-                                        error:nil];
-                }
+                [self repairContainerStructureAtPath:containerPath fileManager:fm];
             }
         }
     }
@@ -496,9 +521,8 @@ extern char **environ;
                              kCFPreferencesAnyHost);
     cleanedItems++;
 
-    // 5. Clear pasteboard & local caches
+    // 5. Clear local URL caches
     [[NSURLCache sharedURLCache] removeAllCachedResponses];
-    [UIPasteboard generalPasteboard].string = @"";
     cleanedItems++;
 
     return cleanedItems;

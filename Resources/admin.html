@@ -13,7 +13,7 @@
       margin: 0;
       padding: 20px 14px 60px;
     }
-    .container { max-width: 860px; margin: 0 auto; }
+    .container { max-width: 900px; margin: 0 auto; }
     .header {
       display: flex;
       align-items: center;
@@ -137,7 +137,6 @@
       padding: 3px 8px; border-radius: 6px; font-size: 11.5px; font-weight: 700;
     }
     .status-msg { font-size: 13px; margin: 6px 0 10px; color: #dec882; }
-    /* Login Modal */
     #loginScreen {
       position: fixed; inset: 0;
       background: #090b09;
@@ -188,7 +187,7 @@
         <div class="badge">GT</div>
         <div>
           <h1>Web Quản Lý Key Zalo iOS</h1>
-          <div class="sub">Kết nối trực tiếp Upstash Redis · Thu hồi & Khoá Key tức thì (0ms)</div>
+          <div class="sub">Kết nối trực tiếp Upstash Redis · Duyệt Mã máy 1-Chạm & Thu hồi Key tức thì</div>
         </div>
       </div>
       <button class="btn btn-outline btn-sm" onclick="logoutAdmin()">Đăng xuất</button>
@@ -210,6 +209,28 @@
       <div class="stat-pill">
         <div class="stat-num" id="statLocked" style="color:#ff8080;">0</div>
         <div class="stat-lbl">Đã thu hồi / Khoá</div>
+      </div>
+    </div>
+
+    <!-- 0. THIẾT BỊ MỚI ĐANG CHỜ DUYỆT (1-CLICK ACTIVATE KHÔNG CẦN NHẬP KEY) -->
+    <div class="card" style="border-color:#dec882;">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+        <div class="card-title" style="margin:0;">⚡ Thiết Bị Đang Chờ Duyệt Mở Khoá (Khách bấm Kích hoạt trên App sẽ hiện ở đây)</div>
+        <button class="btn btn-outline btn-sm" onclick="fetchAllKeys()">🔄 Làm mới</button>
+      </div>
+      <div style="overflow-x:auto;">
+        <table>
+          <thead>
+            <tr>
+              <th>Mã máy (HWID)</th>
+              <th>Thời gian yêu cầu</th>
+              <th>Duyệt mở khoá nhanh (Khách không cần nhập Key)</th>
+            </tr>
+          </thead>
+          <tbody id="pendingTableBody">
+            <tr><td colspan="3" style="text-align:center;color:#777;">Chưa có thiết bị nào đang chờ duyệt</td></tr>
+          </tbody>
+        </table>
       </div>
     </div>
 
@@ -235,12 +256,12 @@
       </div>
       <div class="row">
         <div class="col">
-          <label>Mã máy cố định (Để trống = Tự khoá vào máy đầu tiên nhập Key):</label>
-          <input type="text" id="hwidInput" placeholder="Để trống tự nhận máy, hoặc nhập GT-XXXX-XXXX" style="text-transform:uppercase;">
+          <label>Mã máy cố định (Nhập GT-XXXX-XXXX để khách tự mở khoá không cần gõ Key):</label>
+          <input type="text" id="hwidInput" placeholder="Nhập GT-XXXX-XXXX hoặc để trống" style="text-transform:uppercase;">
         </div>
         <div class="col">
-          <label>Mã Key tuỳ chọn (Để trống = Tự sinh mã ngẫu nhiên):</label>
-          <input type="text" id="customKeyInput" placeholder="Để trống hệ thống tự tạo GT-VIP-XXXX..." style="text-transform:uppercase;">
+          <label>Mã Key ngắn gọn (Để trống = Tự sinh mã ngắn GT-XXXX):</label>
+          <input type="text" id="customKeyInput" placeholder="Để trống hệ thống tự tạo GT-XXXX" style="text-transform:uppercase;">
         </div>
       </div>
       <button class="btn btn-gold" onclick="createKeyUpstash()">➕ Tạo Key & Lưu Lên Upstash Ngay</button>
@@ -248,7 +269,7 @@
       <div class="result-box" id="resultBox">
         <div style="font-size:13px;color:#b8bfb8;">Đã tạo Key thành công cho <b id="resOwner" style="color:#fff;"></b>:</div>
         <div class="key-text" id="resKey"></div>
-        <button class="btn btn-outline btn-sm" onclick="copyGeneratedKey()">📋 Sao chép Key gửi cho khách</button>
+        <button class="btn btn-outline btn-sm" onclick="copyGeneratedKey()">📋 Sao chép Key</button>
       </div>
     </div>
 
@@ -285,9 +306,11 @@
     const UPSTASH_URL = "https://right-cat-209639.upstash.io";
     const UPSTASH_TOKEN = "gQAAAAAAAzLnAAIgcDFiYzU0NDBiOGJmYzE0OTFmYWQ2YTUzYTg4M2MwYmNlNA";
     const REDIS_HASH = "ztech:licenses";
+    const REDIS_PENDING = "ztech:pending_devices";
     const ADMIN_PASS = "admin123";
 
     let allKeysList = [];
+    let pendingList = [];
     let lastGeneratedKey = "";
 
     window.addEventListener("DOMContentLoaded", () => {
@@ -335,7 +358,7 @@
     function randomKeyString() {
       const chars = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
       const seg = () => Array.from({length: 4}, () => chars[Math.floor(Math.random() * chars.length)]).join("");
-      return `GT-${seg()}-${seg()}`;
+      return `GT-${seg()}`;
     }
 
     function computeExpiryDate(durVal) {
@@ -353,7 +376,11 @@
       const statusEl = document.getElementById("syncStatus");
       statusEl.textContent = "⏳ Đang đồng bộ dữ liệu thực tế từ Upstash Redis...";
       try {
-        const rawArr = await upstashCmd(["HGETALL", REDIS_HASH]);
+        const [rawArr, rawPending] = await Promise.all([
+          upstashCmd(["HGETALL", REDIS_HASH]),
+          upstashCmd(["HGETALL", REDIS_PENDING])
+        ]);
+
         const list = [];
         if (Array.isArray(rawArr)) {
           for (let i = 0; i < rawArr.length; i += 2) {
@@ -368,11 +395,71 @@
         }
         list.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
         allKeysList = list;
+
+        const pList = [];
+        if (Array.isArray(rawPending)) {
+          for (let i = 0; i < rawPending.length; i += 2) {
+            const h = rawPending[i];
+            const vStr = rawPending[i + 1];
+            try {
+              const pObj = JSON.parse(vStr);
+              pObj.hwid = pObj.hwid || h;
+              pList.push(pObj);
+            } catch (e) {}
+          }
+        }
+        pendingList = pList;
+
+        renderPendingTable();
         renderTable();
         statusEl.textContent = `🟢 Đã kết nối Upstash Redis (${allKeysList.length} Key). Mọi thao tác Khoá / Thu hồi có hiệu lực tức thì!`;
       } catch (err) {
         statusEl.textContent = "❌ Lỗi kết nối Upstash: " + err.message;
       }
+    }
+
+    function renderPendingTable() {
+      const tbody = document.getElementById("pendingTableBody");
+      if (!pendingList || pendingList.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="3" style="text-align:center;color:#777;">Chưa có thiết bị nào đang chờ duyệt</td></tr>`;
+        return;
+      }
+      tbody.innerHTML = pendingList.map(item => `
+        <tr>
+          <td style="font-family:monospace;color:#dec882;font-weight:900;font-size:15px;">${item.hwid}</td>
+          <td style="color:#aaa;">${item.requestedAt ? new Date(item.requestedAt).toLocaleString("vi-VN") : "Vừa xong"}</td>
+          <td style="display:flex;gap:6px;flex-wrap:wrap;">
+            <button class="btn btn-success btn-sm" onclick="quickApproveDevice('${item.hwid}', '30')">✅ Duyệt 30 Ngày</button>
+            <button class="btn btn-outline btn-sm" onclick="quickApproveDevice('${item.hwid}', '7')">+7 Ngày</button>
+            <button class="btn btn-warn btn-sm" onclick="quickApproveDevice('${item.hwid}', 'LIFETIME')">♾️ Vĩnh Viễn</button>
+            <button class="btn btn-danger btn-sm" onclick="dismissPending('${item.hwid}')">❌ Xoá</button>
+          </td>
+        </tr>
+      `).join("");
+    }
+
+    async function quickApproveDevice(hwid, durVal) {
+      const owner = prompt(`Nhập tên khách hàng cho máy ${hwid}:`, `Khách (${hwid})`);
+      if (owner === null) return;
+      const key = randomKeyString();
+      const expires = computeExpiryDate(durVal);
+      const entry = {
+        key: key,
+        hwid: hwid,
+        owner: owner || `Khách ${hwid}`,
+        expires: expires,
+        status: "active",
+        createdAt: new Date().toISOString()
+      };
+      await upstashCmd(["HSET", REDIS_HASH, key, JSON.stringify(entry)]);
+      await upstashCmd(["HDEL", REDIS_PENDING, hwid]);
+      await fetchAllKeys();
+      alert(`Đã mở khoá cho máy ${hwid}!\nBây giờ chỉ cần bấm nút "Kích hoạt Bản quyền" trên iPhone là mở khoá ngay (không cần nhập Key)!`);
+    }
+
+    async function dismissPending(hwid) {
+      await upstashCmd(["HDEL", REDIS_PENDING, hwid]);
+      await fetchAllKeys();
     }
 
     async function createKeyUpstash() {
@@ -397,6 +484,9 @@
       statusEl.textContent = "⏳ Đang tạo Key trên Upstash Redis...";
       try {
         await upstashCmd(["HSET", REDIS_HASH, key, JSON.stringify(entry)]);
+        if (hwid) {
+          await upstashCmd(["HDEL", REDIS_PENDING, hwid]);
+        }
         lastGeneratedKey = key;
         document.getElementById("resOwner").textContent = owner;
         document.getElementById("resKey").textContent = key;
