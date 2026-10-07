@@ -41,6 +41,7 @@ NS_ASSUME_NONNULL_BEGIN
 + (nullable NSString *)findZaloDataContainerPath;
 + (NSDictionary<NSString *, NSString *> *)findZaloAppGroupContainers;
 
++ (void)killZaloProcess;
 + (void)launchZaloApp;
 
 @end

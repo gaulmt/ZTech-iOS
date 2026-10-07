@@ -2187,7 +2187,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
     if (self.isSavingNewVaultAccount) {
         [self showLoadingWithTitle:@"ĐANG LƯU VÀO KHO" subtitle:@"Đang sao lưu dữ liệu phiên Zalo & Proxy..."];
         ZTechDeviceProfile *profSnap = self.currentProfile;
-        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_USER_INITIATED, 0), ^{
+        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
             NSError *err = nil;
             ZTechVaultAccount *saved = [ZTechVaultManager saveCurrentZaloSessionWithTitle:nameText
                                                                                     proxy:proxyText
@@ -2208,7 +2208,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
         self.currentProfile.activeProxy = proxyText;
         [self showLoadingWithTitle:@"ĐANG ÁP DỤNG PROXY" subtitle:@"Đang khoá đường truyền chống lộ IP thật..."];
         ZTechDeviceProfile *profSnap = self.currentProfile;
-        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_USER_INITIATED, 0), ^{
+        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
             [ZTechDeviceDatabase writeProfileFiles:profSnap error:nil];
             [[NSUserDefaults standardUserDefaults] setObject:[profSnap toDictionary] forKey:@"ZTechCurrentProfile"];
             [[NSUserDefaults standardUserDefaults] synchronize];
@@ -2226,7 +2226,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
     } else if (self.editingVaultAccountId.length > 0) {
         NSString *editId = self.editingVaultAccountId;
         [self showLoadingWithTitle:@"ĐANG CẬP NHẬT" subtitle:@"Đang lưu cấu hình Proxy cho tài khoản..."];
-        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_USER_INITIATED, 0), ^{
+        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
             [ZTechVaultManager updateAccount:editId
                                        title:nameText
                                  proxyString:proxyText];
@@ -2267,7 +2267,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
         : [NSString stringWithFormat:@"Đang nạp phiên [%@] & khởi động Zalo...", acc.title];
     [self showLoadingWithTitle:@"ĐANG MỞ ZALO..." subtitle:subMsg];
 
-    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_USER_INITIATED, 0), ^{
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
         NSError *err = nil;
         ZTechDeviceProfile *restoredProf = nil;
         BOOL ok = [ZTechVaultManager restoreAndLaunchAccount:acc outProfile:&restoredProf error:&err];
@@ -2676,7 +2676,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
 
     [self showLoadingWithTitle:@"ĐANG LÀM MỚI ZALO" subtitle:@"Đang xoá bộ nhớ đệm & khởi tạo máy ảo mới..."];
 
-    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_USER_INITIATED, 0), ^{
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
         NSInteger cleaned = [ZTechDeviceDatabase cleanResetAllProfileDataAndCache];
         ZTechDeviceProfile *newProf = [ZTechDeviceDatabase generateProfileWithLockRealModel:lockOn
                                                                                  sameScreen:screenOn
