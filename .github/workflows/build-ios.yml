@@ -51,31 +51,29 @@ jobs:
           cp gaulmt_Tech_TrollStore.tipa gaulmt_Tech_App.ipa
           rm -rf Payload
 
-      - name: Generate Sileo APT Repository (Packages & Release)
+      - name: Generate Sileo APT Repository (Root + ztech-ios + ZTech-iOS)
         run: |
-          REPO_DIR="$GITHUB_WORKSPACE/sileo_repo"
-          mkdir -p "$REPO_DIR/debs"
-          cp "$GITHUB_WORKSPACE/build_out/gaulmt_Tech_Rootless_arm64.deb" "$REPO_DIR/debs/gaulmt_Tech_Rootless_arm64.deb"
-          cp "$GITHUB_WORKSPACE/build_out/gaulmt_Tech_Rootful_arm.deb" "$REPO_DIR/debs/gaulmt_Tech_Rootful_arm.deb"
+          STAGE_DIR="$GITHUB_WORKSPACE/sileo_stage"
+          mkdir -p "$STAGE_DIR/debs"
+          cp "$GITHUB_WORKSPACE/build_out/gaulmt_Tech_Rootless_arm64.deb" "$STAGE_DIR/debs/gaulmt_Tech_Rootless_arm64.deb"
+          cp "$GITHUB_WORKSPACE/build_out/gaulmt_Tech_Rootful_arm.deb" "$STAGE_DIR/debs/gaulmt_Tech_Rootful_arm.deb"
 
           if [ -f "ZTech_iOS/Resources/CydiaIcon.png" ]; then
-            cp ZTech_iOS/Resources/CydiaIcon*.png "$REPO_DIR/"
+            cp ZTech_iOS/Resources/CydiaIcon*.png "$STAGE_DIR/"
           elif [ -f "Resources/CydiaIcon.png" ]; then
-            cp Resources/CydiaIcon*.png "$REPO_DIR/"
+            cp Resources/CydiaIcon*.png "$STAGE_DIR/"
           fi
 
-          cd "$REPO_DIR"
-          # Scan without leading ./ so Filename is debs/gaulmt_Tech_*.deb
+          cd "$STAGE_DIR"
           dpkg-scanpackages -m debs > Packages
           gzip -c9 Packages > Packages.gz
           bzip2 -c9 Packages > Packages.bz2
           xz -c9 Packages > Packages.xz
 
-          # Also keep legacy filenames in debs/ so unrefreshed Sileo clients never get 404
-          cp "$GITHUB_WORKSPACE/build_out/gaulmt_Tech_Rootless_arm64.deb" "$REPO_DIR/debs/ZTech_Rootless_arm64.deb"
-          cp "$GITHUB_WORKSPACE/build_out/gaulmt_Tech_Rootful_arm.deb" "$REPO_DIR/debs/ZTech_Rootful_arm.deb"
-          cp "$GITHUB_WORKSPACE/build_out/gaulmt_Tech_TrollStore.tipa" "$REPO_DIR/debs/gaulmt_Tech_TrollStore.tipa"
-          cp "$GITHUB_WORKSPACE/build_out/gaulmt_Tech_TrollStore.tipa" "$REPO_DIR/debs/ZTech_TrollStore.tipa"
+          cp "$GITHUB_WORKSPACE/build_out/gaulmt_Tech_Rootless_arm64.deb" "$STAGE_DIR/debs/ZTech_Rootless_arm64.deb"
+          cp "$GITHUB_WORKSPACE/build_out/gaulmt_Tech_Rootful_arm.deb" "$STAGE_DIR/debs/ZTech_Rootful_arm.deb"
+          cp "$GITHUB_WORKSPACE/build_out/gaulmt_Tech_TrollStore.tipa" "$STAGE_DIR/debs/gaulmt_Tech_TrollStore.tipa"
+          cp "$GITHUB_WORKSPACE/build_out/gaulmt_Tech_TrollStore.tipa" "$STAGE_DIR/debs/ZTech_TrollStore.tipa"
 
           cat << 'EOF' > Release
           Origin: gaulmt -Tech Official Repo
@@ -136,15 +134,22 @@ jobs:
               <img class="logo" src="CydiaIcon@3x.png" alt="GT Logo">
               <h1>gaulmt -Tech</h1>
               <div class="sub">Nguồn cài đặt v3.0.1 trực tiếp vào Sileo & Zebra</div>
-              <a class="btn btn-sileo" href="sileo://source/https://gaulmt.github.io/ztech-ios/">➕ Thêm nguồn vào Sileo ngay</a>
-              <a class="btn btn-zebra" href="zbra://sources/add/https://gaulmt.github.io/ztech-ios/">➕ Thêm nguồn vào Zebra</a>
-              <a class="btn btn-zebra" href="apple-magnifier://install?url=https://gaulmt.github.io/ztech-ios/debs/gaulmt_Tech_TrollStore.tipa">⚡ Cài trực tiếp qua TrollStore</a>
-              <p style="color:#9ba19b;font-size:13px;margin-top:20px;">Hoặc copy link nguồn dưới đây dán vào mục Nguồn (Sources) trong Sileo:</p>
-              <div class="url-box">https://gaulmt.github.io/ztech-ios/</div>
+              <a class="btn btn-sileo" href="sileo://source/https://gaulmt.github.io/">➕ Thêm nguồn vào Sileo ngay</a>
+              <a class="btn btn-zebra" href="zbra://sources/add/https://gaulmt.github.io/">➕ Thêm nguồn vào Zebra</a>
+              <a class="btn btn-zebra" href="apple-magnifier://install?url=https://gaulmt.github.io/debs/gaulmt_Tech_TrollStore.tipa">⚡ Cài trực tiếp qua TrollStore</a>
+              <p style="color:#9ba19b;font-size:13px;margin-top:20px;">Hoặc copy link nguồn ngắn gọn dưới đây dán vào Sileo:</p>
+              <div class="url-box">https://gaulmt.github.io/</div>
             </div>
           </body>
           </html>
           EOF
+
+          # Populate Root (/), /ztech-ios/, and /ZTech-iOS/ so ALL 3 URLs work simultaneously!
+          REPO_DIR="$GITHUB_WORKSPACE/sileo_repo"
+          mkdir -p "$REPO_DIR" "$REPO_DIR/ztech-ios" "$REPO_DIR/ZTech-iOS"
+          cp -r "$STAGE_DIR/"* "$REPO_DIR/"
+          cp -r "$STAGE_DIR/"* "$REPO_DIR/ztech-ios/"
+          cp -r "$STAGE_DIR/"* "$REPO_DIR/ZTech-iOS/"
 
       - name: Deploy Sileo Repo to gh-pages branch
         run: |
@@ -155,7 +160,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git checkout -b gh-pages
           git add .
-          git commit -m "Deploy gaulmt -Tech Sileo APT Repository v3.0.1"
+          git commit -m "Deploy Multi-Path Sileo APT Repository v3.0.1"
           git push --force "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" gh-pages
 
       - name: Upload Built Packages (.deb, .tipa, .ipa)
