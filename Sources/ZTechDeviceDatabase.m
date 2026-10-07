@@ -11,36 +11,42 @@ extern char **environ;
 
 - (NSString *)summaryLine1 {
     return [NSString stringWithFormat:@"%@ (%@) · iOS %@",
-            self.modelName ?: @"iPhone 15 Pro",
-            self.machineId ?: @"iPhone16,1",
-            self.iosVersion ?: @"17.1.2"];
+            self.modelName ?: @"iPhone 16 Pro Max",
+            self.machineId ?: @"iPhone17,2",
+            self.iosVersion ?: @"18.2.1"];
 }
 
 - (NSString *)summaryLine2 {
-    return [NSString stringWithFormat:@"Pin %ld%% · %@ · %@ · %@ · %ld danh bạ",
+    NSString *proxyTag = (self.activeProxy && self.activeProxy.length > 0)
+        ? [NSString stringWithFormat:@" · 🛡 Proxy: %@", self.activeProxy]
+        : @"";
+    return [NSString stringWithFormat:@"Pin %ld%% · %@ · %@ · %@ · %ld danh bạ%@",
             (long)self.batteryPercent,
             self.carrier ?: @"MobiFone",
             self.wifiSsid ?: @"The Coffee House",
             self.city ?: @"Hải Phòng",
-            (long)self.contactsCount];
+            (long)self.contactsCount,
+            proxyTag];
 }
 
 - (NSString *)fullReportTextWithFlags:(BOOL)lockModel
-                         respringAfter:(BOOL)respring
-                            sameScreen:(BOOL)sameScreen
-                             matchChip:(BOOL)matchChip {
+                          respringAfter:(BOOL)respring
+                             sameScreen:(BOOL)sameScreen
+                              matchChip:(BOOL)matchChip {
     NSString *modeText = lockModel ? @"Khoá Đời Máy" : @"Fake Tất Cả";
     return [NSString stringWithFormat:
-            @"=== gaulmt -Tech Device Report v4.1 ===\n"
+            @"=== gaulmt -Tech Device Report v4.6 ===\n"
             @"ID: %@\n"
             @"Device: %@ (%@) - iOS %@\n"
             @"Chip/RAM: %@ (%ldGB) - Screen: %@\n"
+            @"Proxy: %@\n"
             @"Status: Pin %ld%% | %@ | %@ | %@ | %ld danh bạ\n"
             @"Config: LockModel=%@ | Respring=%@ | SameScreen=%@ | MatchChip=%@\n"
             @"Result: %ld mục thành công · 0 chưa ghi · Đã ghi %ld file (%@)",
             self.identifier,
             self.modelName, self.machineId, self.iosVersion,
             self.chipName, (long)self.ramGB, self.screenKey,
+            (self.activeProxy.length > 0 ? self.activeProxy : @"Direct (4G/WiFi)"),
             (long)self.batteryPercent, self.carrier, self.wifiSsid, self.city, (long)self.contactsCount,
             lockModel ? @"ON" : @"OFF",
             respring ? @"ON" : @"OFF",
@@ -52,17 +58,18 @@ extern char **environ;
 - (NSDictionary *)toDictionary {
     return @{
         @"identifier": self.identifier ?: @"",
-        @"modelName": self.modelName ?: @"iPhone 14 Pro",
-        @"machineId": self.machineId ?: @"iPhone15,2",
-        @"iosVersion": self.iosVersion ?: @"16.6.1",
+        @"modelName": self.modelName ?: @"iPhone 16 Pro Max",
+        @"machineId": self.machineId ?: @"iPhone17,2",
+        @"iosVersion": self.iosVersion ?: @"18.2.1",
         @"batteryPercent": @(self.batteryPercent > 0 ? self.batteryPercent : 68),
         @"carrier": self.carrier ?: @"MobiFone",
         @"wifiSsid": self.wifiSsid ?: @"The Coffee House",
         @"city": self.city ?: @"Hải Phòng",
         @"contactsCount": @(self.contactsCount > 0 ? self.contactsCount : 36),
-        @"chipName": self.chipName ?: @"A16 Bionic",
-        @"ramGB": @(self.ramGB > 0 ? self.ramGB : 6),
-        @"screenKey": self.screenKey ?: @"393x852",
+        @"chipName": self.chipName ?: @"A18 Pro",
+        @"ramGB": @(self.ramGB > 0 ? self.ramGB : 8),
+        @"screenKey": self.screenKey ?: @"440x956",
+        @"activeProxy": self.activeProxy ?: @"",
         @"writtenFilesCount": @(self.writtenFilesCount),
         @"successItemsCount": @(self.successItemsCount)
     };
@@ -72,25 +79,26 @@ extern char **environ;
     if (!dict || ![dict isKindOfClass:[NSDictionary class]]) return nil;
     ZTechDeviceProfile *p = [[ZTechDeviceProfile alloc] init];
     p.identifier = dict[@"identifier"] ?: [[NSUUID UUID] UUIDString];
-    p.modelName = dict[@"modelName"] ?: @"iPhone 15 Pro";
-    p.machineId = dict[@"machineId"] ?: @"iPhone16,1";
+    p.modelName = dict[@"modelName"] ?: @"iPhone 16 Pro Max";
+    p.machineId = dict[@"machineId"] ?: @"iPhone17,2";
     if ([p.machineId hasPrefix:@"iPhone9,"] || [p.machineId hasPrefix:@"iPhone8,"] || [p.machineId hasPrefix:@"iPhone7,"]) {
         p.machineId = @"iPhone10,4";
         p.modelName = @"iPhone 8";
     }
-    NSString *ver = dict[@"iosVersion"] ?: @"16.6.1";
+    NSString *ver = dict[@"iosVersion"] ?: @"18.2.1";
     if ([ver integerValue] < 16) {
         ver = @"16.6.1";
     }
     p.iosVersion = ver;
-    p.batteryPercent = [dict[@"batteryPercent"] integerValue] ?: 65;
+    p.batteryPercent = [dict[@"batteryPercent"] integerValue] ?: 68;
     p.carrier = dict[@"carrier"] ?: @"MobiFone";
     p.wifiSsid = dict[@"wifiSsid"] ?: @"The Coffee House";
     p.city = dict[@"city"] ?: @"Hải Phòng";
     p.contactsCount = [dict[@"contactsCount"] integerValue] ?: 36;
-    p.chipName = dict[@"chipName"] ?: @"A17 Pro";
-    p.ramGB = [dict[@"ramGB"] integerValue] ?: 6;
-    p.screenKey = dict[@"screenKey"] ?: @"393x852";
+    p.chipName = dict[@"chipName"] ?: @"A18 Pro";
+    p.ramGB = [dict[@"ramGB"] integerValue] ?: 8;
+    p.screenKey = dict[@"screenKey"] ?: @"440x956";
+    p.activeProxy = dict[@"activeProxy"] ?: @"";
     p.writtenFilesCount = [dict[@"writtenFilesCount"] integerValue] ?: 7;
     p.successItemsCount = [dict[@"successItemsCount"] integerValue] ?: 10;
     return p;
@@ -100,34 +108,40 @@ extern char **environ;
 
 @implementation ZTechDeviceDatabase
 
-// Strictly iPhone 8 (iPhone10,4) and newer, and strictly iOS 16.0+
+// Strictly iPhone 8 (iPhone10,4) through iPhone 16 Pro Max (iPhone17,2) & iPhone 16e (iPhone17,5), iOS 16.0 - 18.3.2
 + (NSArray<NSDictionary *> *)allDeviceSpecs {
     return @[
-        @{@"name": @"iPhone 8", @"machine": @"iPhone10,4", @"chip": @"A11 Bionic", @"ram": @2, @"screen": @"375x667", @"ios": @[@"16.4.1", @"16.6.1", @"16.7.5", @"16.7.8"]},
-        @{@"name": @"iPhone 8 Plus", @"machine": @"iPhone10,5", @"chip": @"A11 Bionic", @"ram": @3, @"screen": @"414x736", @"ios": @[@"16.5.1", @"16.6.1", @"16.7.5", @"16.7.8"]},
-        @{@"name": @"iPhone X", @"machine": @"iPhone10,6", @"chip": @"A11 Bionic", @"ram": @3, @"screen": @"375x812", @"ios": @[@"16.5.1", @"16.6.1", @"16.7.5", @"16.7.8"]},
-        @{@"name": @"iPhone XR", @"machine": @"iPhone11,8", @"chip": @"A12 Bionic", @"ram": @3, @"screen": @"414x896", @"ios": @[@"16.5.1", @"16.6.1", @"17.1.2", @"17.3.1"]},
-        @{@"name": @"iPhone XS", @"machine": @"iPhone11,2", @"chip": @"A12 Bionic", @"ram": @4, @"screen": @"375x812", @"ios": @[@"16.6.1", @"17.1.2", @"17.3.1", @"17.4.1"]},
-        @{@"name": @"iPhone XS Max", @"machine": @"iPhone11,6", @"chip": @"A12 Bionic", @"ram": @4, @"screen": @"414x896", @"ios": @[@"16.6.1", @"17.1.2", @"17.3.1", @"17.4.1"]},
-        @{@"name": @"iPhone SE (2020)", @"machine": @"iPhone12,8", @"chip": @"A13 Bionic", @"ram": @3, @"screen": @"375x667", @"ios": @[@"16.6.1", @"17.1.2", @"17.3.1", @"17.4.1"]},
-        @{@"name": @"iPhone SE (2022)", @"machine": @"iPhone14,6", @"chip": @"A15 Bionic", @"ram": @4, @"screen": @"375x667", @"ios": @[@"16.6.1", @"17.1.2", @"17.3.1", @"17.4.1"]},
-        @{@"name": @"iPhone 11", @"machine": @"iPhone12,1", @"chip": @"A13 Bionic", @"ram": @4, @"screen": @"414x896", @"ios": @[@"16.5.1", @"16.6.1", @"17.1.2", @"17.4.1"]},
-        @{@"name": @"iPhone 11 Pro", @"machine": @"iPhone12,3", @"chip": @"A13 Bionic", @"ram": @4, @"screen": @"375x812", @"ios": @[@"16.6", @"16.7.2", @"17.1.2", @"17.4.1"]},
-        @{@"name": @"iPhone 11 Pro Max", @"machine": @"iPhone12,5", @"chip": @"A13 Bionic", @"ram": @4, @"screen": @"414x896", @"ios": @[@"16.6.1", @"17.1.1", @"17.1.2", @"17.4.1"]},
-        @{@"name": @"iPhone 12", @"machine": @"iPhone13,2", @"chip": @"A14 Bionic", @"ram": @4, @"screen": @"390x844", @"ios": @[@"16.6.1", @"16.7.2", @"17.1.2", @"17.4.1"]},
-        @{@"name": @"iPhone 12 Pro", @"machine": @"iPhone13,3", @"chip": @"A14 Bionic", @"ram": @6, @"screen": @"390x844", @"ios": @[@"16.6.1", @"17.0.3", @"17.1.2", @"17.4.1"]},
-        @{@"name": @"iPhone 12 Pro Max", @"machine": @"iPhone13,4", @"chip": @"A14 Bionic", @"ram": @6, @"screen": @"428x926", @"ios": @[@"16.6.1", @"17.1.1", @"17.1.2", @"17.4.1"]},
-        @{@"name": @"iPhone 13", @"machine": @"iPhone14,5", @"chip": @"A15 Bionic", @"ram": @4, @"screen": @"390x844", @"ios": @[@"16.5", @"16.6.1", @"17.1.2", @"17.2.1"]},
-        @{@"name": @"iPhone 13 Pro", @"machine": @"iPhone14,2", @"chip": @"A15 Bionic", @"ram": @6, @"screen": @"390x844", @"ios": @[@"16.6", @"17.1.2", @"17.2.1", @"17.4.1"]},
-        @{@"name": @"iPhone 13 Pro Max", @"machine": @"iPhone14,3", @"chip": @"A15 Bionic", @"ram": @6, @"screen": @"428x926", @"ios": @[@"16.6.1", @"17.1.2", @"17.2.1", @"17.4.1"]},
-        @{@"name": @"iPhone 14", @"machine": @"iPhone14,7", @"chip": @"A15 Bionic", @"ram": @6, @"screen": @"390x844", @"ios": @[@"16.6.1", @"17.1.1", @"17.1.2", @"17.4.1"]},
-        @{@"name": @"iPhone 14 Plus", @"machine": @"iPhone14,8", @"chip": @"A15 Bionic", @"ram": @6, @"screen": @"428x926", @"ios": @[@"16.6.1", @"17.1.2", @"17.2.1", @"17.4.1"]},
-        @{@"name": @"iPhone 14 Pro", @"machine": @"iPhone15,2", @"chip": @"A16 Bionic", @"ram": @6, @"screen": @"393x852", @"ios": @[@"16.6.1", @"17.0.3", @"17.1.2", @"17.3.1"]},
-        @{@"name": @"iPhone 14 Pro Max", @"machine": @"iPhone15,3", @"chip": @"A16 Bionic", @"ram": @6, @"screen": @"430x932", @"ios": @[@"16.6.1", @"17.1.2", @"17.3.1", @"17.4.1"]},
-        @{@"name": @"iPhone 15", @"machine": @"iPhone15,4", @"chip": @"A16 Bionic", @"ram": @6, @"screen": @"393x852", @"ios": @[@"17.0.3", @"17.1.1", @"17.1.2", @"17.4.1"]},
-        @{@"name": @"iPhone 15 Plus", @"machine": @"iPhone15,5", @"chip": @"A16 Bionic", @"ram": @6, @"screen": @"430x932", @"ios": @[@"17.1.1", @"17.1.2", @"17.4.1"]},
-        @{@"name": @"iPhone 15 Pro", @"machine": @"iPhone16,1", @"chip": @"A17 Pro", @"ram": @8, @"screen": @"393x852", @"ios": @[@"17.1.1", @"17.1.2", @"17.2.1", @"17.4.1"]},
-        @{@"name": @"iPhone 15 Pro Max", @"machine": @"iPhone16,2", @"chip": @"A17 Pro", @"ram": @8, @"screen": @"430x932", @"ios": @[@"17.1.1", @"17.1.2", @"17.2.1", @"17.4.1"]}
+        @{@"name": @"iPhone 8", @"machine": @"iPhone10,4", @"chip": @"A11 Bionic", @"ram": @2, @"screen": @"375x667", @"tier": @0, @"ios": @[@"16.4.1", @"16.6.1", @"16.7.5", @"16.7.8"]},
+        @{@"name": @"iPhone 8 Plus", @"machine": @"iPhone10,5", @"chip": @"A11 Bionic", @"ram": @3, @"screen": @"414x736", @"tier": @0, @"ios": @[@"16.5.1", @"16.6.1", @"16.7.5", @"16.7.8"]},
+        @{@"name": @"iPhone X", @"machine": @"iPhone10,6", @"chip": @"A11 Bionic", @"ram": @3, @"screen": @"375x812", @"tier": @0, @"ios": @[@"16.5.1", @"16.6.1", @"16.7.5", @"16.7.8"]},
+        @{@"name": @"iPhone XR", @"machine": @"iPhone11,8", @"chip": @"A12 Bionic", @"ram": @3, @"screen": @"414x896", @"tier": @0, @"ios": @[@"16.5.1", @"16.6.1", @"17.1.2", @"17.4.1"]},
+        @{@"name": @"iPhone XS", @"machine": @"iPhone11,2", @"chip": @"A12 Bionic", @"ram": @4, @"screen": @"375x812", @"tier": @0, @"ios": @[@"16.6.1", @"17.1.2", @"17.4.1", @"17.6.1"]},
+        @{@"name": @"iPhone XS Max", @"machine": @"iPhone11,6", @"chip": @"A12 Bionic", @"ram": @4, @"screen": @"414x896", @"tier": @0, @"ios": @[@"16.6.1", @"17.1.2", @"17.4.1", @"17.6.1"]},
+        @{@"name": @"iPhone SE (2020)", @"machine": @"iPhone12,8", @"chip": @"A13 Bionic", @"ram": @3, @"screen": @"375x667", @"tier": @0, @"ios": @[@"16.6.1", @"17.1.2", @"17.4.1", @"17.6.1"]},
+        @{@"name": @"iPhone SE (2022)", @"machine": @"iPhone14,6", @"chip": @"A15 Bionic", @"ram": @4, @"screen": @"375x667", @"tier": @0, @"ios": @[@"16.6.1", @"17.2.1", @"17.5.1", @"18.1.1"]},
+        @{@"name": @"iPhone 11", @"machine": @"iPhone12,1", @"chip": @"A13 Bionic", @"ram": @4, @"screen": @"414x896", @"tier": @0, @"ios": @[@"16.6.1", @"17.2.1", @"17.5.1", @"18.1.1"]},
+        @{@"name": @"iPhone 11 Pro", @"machine": @"iPhone12,3", @"chip": @"A13 Bionic", @"ram": @4, @"screen": @"375x812", @"tier": @0, @"ios": @[@"16.6.1", @"17.2.1", @"17.5.1", @"18.1.1"]},
+        @{@"name": @"iPhone 11 Pro Max", @"machine": @"iPhone12,5", @"chip": @"A13 Bionic", @"ram": @4, @"screen": @"414x896", @"tier": @0, @"ios": @[@"16.6.1", @"17.2.1", @"17.5.1", @"18.1.1"]},
+        @{@"name": @"iPhone 12", @"machine": @"iPhone13,2", @"chip": @"A14 Bionic", @"ram": @4, @"screen": @"390x844", @"tier": @0, @"ios": @[@"16.6.1", @"17.3.1", @"17.6.1", @"18.1.1"]},
+        @{@"name": @"iPhone 12 Pro", @"machine": @"iPhone13,3", @"chip": @"A14 Bionic", @"ram": @6, @"screen": @"390x844", @"tier": @0, @"ios": @[@"16.6.1", @"17.3.1", @"17.6.1", @"18.1.1"]},
+        @{@"name": @"iPhone 12 Pro Max", @"machine": @"iPhone13,4", @"chip": @"A14 Bionic", @"ram": @6, @"screen": @"428x926", @"tier": @0, @"ios": @[@"16.6.1", @"17.3.1", @"17.6.1", @"18.1.1"]},
+        @{@"name": @"iPhone 13", @"machine": @"iPhone14,5", @"chip": @"A15 Bionic", @"ram": @4, @"screen": @"390x844", @"tier": @0, @"ios": @[@"16.6.1", @"17.4.1", @"17.6.1", @"18.2.1"]},
+        @{@"name": @"iPhone 13 Pro", @"machine": @"iPhone14,2", @"chip": @"A15 Bionic", @"ram": @6, @"screen": @"390x844", @"tier": @0, @"ios": @[@"16.6.1", @"17.4.1", @"17.6.1", @"18.2.1"]},
+        @{@"name": @"iPhone 13 Pro Max", @"machine": @"iPhone14,3", @"chip": @"A15 Bionic", @"ram": @6, @"screen": @"428x926", @"tier": @0, @"ios": @[@"16.6.1", @"17.4.1", @"17.6.1", @"18.2.1"]},
+        @{@"name": @"iPhone 14", @"machine": @"iPhone14,7", @"chip": @"A15 Bionic", @"ram": @6, @"screen": @"390x844", @"tier": @1, @"ios": @[@"16.6.1", @"17.4.1", @"17.6.1", @"18.2.1"]},
+        @{@"name": @"iPhone 14 Plus", @"machine": @"iPhone14,8", @"chip": @"A15 Bionic", @"ram": @6, @"screen": @"428x926", @"tier": @1, @"ios": @[@"16.6.1", @"17.4.1", @"17.6.1", @"18.2.1"]},
+        @{@"name": @"iPhone 14 Pro", @"machine": @"iPhone15,2", @"chip": @"A16 Bionic", @"ram": @6, @"screen": @"393x852", @"tier": @1, @"ios": @[@"16.6.1", @"17.4.1", @"17.6.1", @"18.2.1"]},
+        @{@"name": @"iPhone 14 Pro Max", @"machine": @"iPhone15,3", @"chip": @"A16 Bionic", @"ram": @6, @"screen": @"430x932", @"tier": @1, @"ios": @[@"16.6.1", @"17.4.1", @"17.6.1", @"18.2.1"]},
+        @{@"name": @"iPhone 15", @"machine": @"iPhone15,4", @"chip": @"A16 Bionic", @"ram": @6, @"screen": @"393x852", @"tier": @1, @"ios": @[@"17.2.1", @"17.5.1", @"18.1.1", @"18.2.1"]},
+        @{@"name": @"iPhone 15 Plus", @"machine": @"iPhone15,5", @"chip": @"A16 Bionic", @"ram": @6, @"screen": @"430x932", @"tier": @1, @"ios": @[@"17.2.1", @"17.5.1", @"18.1.1", @"18.2.1"]},
+        @{@"name": @"iPhone 15 Pro", @"machine": @"iPhone16,1", @"chip": @"A17 Pro", @"ram": @8, @"screen": @"393x852", @"tier": @1, @"ios": @[@"17.2.1", @"17.5.1", @"18.1.1", @"18.3.1"]},
+        @{@"name": @"iPhone 15 Pro Max", @"machine": @"iPhone16,2", @"chip": @"A17 Pro", @"ram": @8, @"screen": @"430x932", @"tier": @1, @"ios": @[@"17.2.1", @"17.5.1", @"18.1.1", @"18.3.1"]},
+        // New iPhone 16 Series (tier = 2)
+        @{@"name": @"iPhone 16e", @"machine": @"iPhone17,5", @"chip": @"A18", @"ram": @8, @"screen": @"390x844", @"tier": @2, @"ios": @[@"18.3", @"18.3.1", @"18.3.2"]},
+        @{@"name": @"iPhone 16", @"machine": @"iPhone17,3", @"chip": @"A18", @"ram": @8, @"screen": @"393x852", @"tier": @2, @"ios": @[@"18.0.1", @"18.1.1", @"18.2.1", @"18.3.1"]},
+        @{@"name": @"iPhone 16 Plus", @"machine": @"iPhone17,4", @"chip": @"A18", @"ram": @8, @"screen": @"430x932", @"tier": @2, @"ios": @[@"18.0.1", @"18.1.1", @"18.2.1", @"18.3.1"]},
+        @{@"name": @"iPhone 16 Pro", @"machine": @"iPhone17,1", @"chip": @"A18 Pro", @"ram": @8, @"screen": @"402x874", @"tier": @2, @"ios": @[@"18.0.1", @"18.1.1", @"18.2.1", @"18.3.1"]},
+        @{@"name": @"iPhone 16 Pro Max", @"machine": @"iPhone17,2", @"chip": @"A18 Pro", @"ram": @8, @"screen": @"440x956", @"tier": @2, @"ios": @[@"18.0.1", @"18.1.1", @"18.2.1", @"18.3.1"]}
     ];
 }
 
@@ -136,9 +150,8 @@ extern char **environ;
     uname(&systemInfo);
     NSString *machine = [NSString stringWithCString:systemInfo.machine encoding:NSUTF8StringEncoding];
     if (!machine || ![machine hasPrefix:@"iPhone"]) {
-        return @"iPhone16,1";
+        return @"iPhone17,2";
     }
-    // Enforce minimum iPhone 8 (iPhone10,4) even if real device is iPhone 7 (iPhone9,x)
     if ([machine hasPrefix:@"iPhone9,"] || [machine hasPrefix:@"iPhone8,"] || [machine hasPrefix:@"iPhone7,"]) {
         return @"iPhone10,4";
     }
@@ -165,7 +178,7 @@ extern char **environ;
             return spec;
         }
     }
-    return [self allDeviceSpecs][23]; // iPhone 15 Pro (iPhone16,1)
+    return [self allDeviceSpecs].lastObject; // iPhone 16 Pro Max
 }
 
 + (ZTechDeviceProfile *)loadOrCreateDefaultProfile {
@@ -179,17 +192,18 @@ extern char **environ;
     }
     ZTechDeviceProfile *initial = [[ZTechDeviceProfile alloc] init];
     initial.identifier = @"7BD46FDA-D93D-45BD-9158-7178669502DD";
-    initial.modelName = @"iPhone 15 Pro";
-    initial.machineId = @"iPhone16,1";
-    initial.iosVersion = @"17.1.2";
-    initial.batteryPercent = 60;
-    initial.carrier = @"MobiFone";
+    initial.modelName = @"iPhone 16 Pro Max";
+    initial.machineId = @"iPhone17,2";
+    initial.iosVersion = @"18.2.1";
+    initial.batteryPercent = 76;
+    initial.carrier = @"Viettel";
     initial.wifiSsid = @"The Coffee House";
-    initial.city = @"Hải Phòng";
-    initial.contactsCount = 36;
-    initial.chipName = @"A17 Pro";
+    initial.city = @"Hà Nội";
+    initial.contactsCount = 42;
+    initial.chipName = @"A18 Pro";
     initial.ramGB = 8;
-    initial.screenKey = @"393x852";
+    initial.screenKey = @"440x956";
+    initial.activeProxy = @"";
     initial.writtenFilesCount = 7;
     initial.successItemsCount = 10;
     [self writeProfileFiles:initial error:nil];
@@ -199,17 +213,33 @@ extern char **environ;
 + (ZTechDeviceProfile *)generateProfileWithLockRealModel:(BOOL)lockModel
                                               sameScreen:(BOOL)sameScreen
                                                matchChip:(BOOL)matchChip
+                                               modelTier:(ZTechModelTierFilter)modelTier
                                              currentCity:(NSString *)currentCity {
     NSArray<NSDictionary *> *allSpecs = [self allDeviceSpecs];
     NSDictionary *realSpec = [self realDeviceSpecFallback];
     NSString *realScreen = [self realScreenKey];
     NSDictionary *prevSaved = [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"ZTechCurrentProfile"];
     NSString *prevMachine = prevSaved[@"machineId"];
+    NSString *prevProxy = prevSaved[@"activeProxy"] ?: @"";
 
     NSMutableArray<NSDictionary *> *candidates = [NSMutableArray array];
 
     if (lockModel) {
         [candidates addObject:realSpec];
+    } else if (modelTier == ZTechModelTierIPhone16) {
+        // User explicitly selected iPhone 16 Series only
+        for (NSDictionary *spec in allSpecs) {
+            if ([spec[@"tier"] integerValue] == 2) {
+                [candidates addObject:spec];
+            }
+        }
+    } else if (modelTier == ZTechModelTierHighEnd) {
+        // User selected High-End (iPhone 14 -> iPhone 16 Pro Max)
+        for (NSDictionary *spec in allSpecs) {
+            if ([spec[@"tier"] integerValue] >= 1) {
+                [candidates addObject:spec];
+            }
+        }
     } else {
         for (NSDictionary *spec in allSpecs) {
             BOOL ok = YES;
@@ -221,6 +251,10 @@ extern char **environ;
             }
             if (ok) {
                 [candidates addObject:spec];
+                // Weight iPhone 15 & iPhone 16 models 2x higher when in "All" mode
+                if ([spec[@"tier"] integerValue] >= 1) {
+                    [candidates addObject:spec];
+                }
             }
         }
         if (candidates.count <= 1 && sameScreen) {
@@ -234,16 +268,17 @@ extern char **environ;
         if (candidates.count <= 1) {
             candidates = [allSpecs mutableCopy];
         }
-        if (candidates.count > 1 && prevMachine.length > 0) {
-            NSMutableArray<NSDictionary *> *nonRepeat = [NSMutableArray array];
-            for (NSDictionary *spec in candidates) {
-                if (![spec[@"machine"] isEqualToString:prevMachine]) {
-                    [nonRepeat addObject:spec];
-                }
+    }
+
+    if (candidates.count > 1 && prevMachine.length > 0) {
+        NSMutableArray<NSDictionary *> *nonRepeat = [NSMutableArray array];
+        for (NSDictionary *spec in candidates) {
+            if (![spec[@"machine"] isEqualToString:prevMachine]) {
+                [nonRepeat addObject:spec];
             }
-            if (nonRepeat.count > 0) {
-                candidates = nonRepeat;
-            }
+        }
+        if (nonRepeat.count > 0) {
+            candidates = nonRepeat;
         }
     }
 
@@ -279,12 +314,12 @@ extern char **environ;
     profile.chipName = chosen[@"chip"];
     profile.ramGB = [chosen[@"ram"] integerValue];
     profile.screenKey = chosen[@"screen"];
+    profile.activeProxy = prevProxy;
 
     [self writeProfileFiles:profile error:nil];
     [[NSUserDefaults standardUserDefaults] setObject:[profile toDictionary] forKey:@"ZTechCurrentProfile"];
     [[NSUserDefaults standardUserDefaults] synchronize];
 
-    // Terminate AIDA64 if running in background so it reloads fresh with the new profile
     [self terminateBackgroundInspectors];
 
     return profile;
@@ -339,15 +374,16 @@ extern char **environ;
         },
         @"03_system_os.plist": @{
             @"OSVersion": profile.iosVersion ?: @"",
-            @"BuildVersion": @"21E236"
+            @"BuildVersion": @"22C152"
         },
         @"04_screen_display.plist": @{
-            @"ScreenResolution": profile.screenKey ?: @"393x852",
+            @"ScreenResolution": profile.screenKey ?: @"440x956",
             @"Scale": @3
         },
         @"05_network_carrier.plist": @{
             @"CarrierName": profile.carrier ?: @"MobiFone",
-            @"WiFiSSID": profile.wifiSsid ?: @"The Coffee House"
+            @"WiFiSSID": profile.wifiSsid ?: @"The Coffee House",
+            @"ActiveProxy": profile.activeProxy ?: @""
         },
         @"06_battery_power.plist": @{
             @"BatteryLevel": @(profile.batteryPercent),
@@ -374,7 +410,6 @@ extern char **environ;
 
     NSDictionary *sharedDict = [profile toDictionary];
 
-    // 1. Save to Global CFPreferences (.GlobalPreferences) readable by all sandboxed App Store apps via cfprefsd
     CFPreferencesSetValue(CFSTR("ZTechGlobalProfile"),
                           (__bridge CFPropertyListRef)sharedDict,
                           kCFPreferencesAnyApplication,
@@ -384,7 +419,6 @@ extern char **environ;
                              kCFPreferencesCurrentUser,
                              kCFPreferencesAnyHost);
 
-    // 2. Also write world-readable shared plist files across all jailbreak paths
     NSArray<NSString *> *sharedDirs = @[
         @"/Library/Preferences/ZTechShared",
         @"/var/jb/Library/Preferences/ZTechShared",
@@ -457,7 +491,6 @@ extern char **environ;
     NSInteger cleanedItems = 0;
     NSFileManager *fm = [NSFileManager defaultManager];
 
-    // 1. Terminate running target processes first so files are not locked
     NSArray<NSString *> *killBins = @[@"/var/jb/usr/bin/killall", @"/usr/bin/killall"];
     for (NSString *bin in killBins) {
         if ([fm isExecutableFileAtPath:bin]) {
@@ -470,7 +503,6 @@ extern char **environ;
         }
     }
 
-    // 2. Scan and safely clean contents inside subdirectories of Data Containers & AppGroups (never deleting top-level container directories)
     NSArray<NSString *> *containerRoots = @[
         @"/var/mobile/Containers/Data/Application",
         @"/private/var/mobile/Containers/Data/Application",
@@ -499,7 +531,6 @@ extern char **environ;
         }
     }
 
-    // 3. Remove local profile configuration files
     NSString *dir = [self storageDirectoryPath];
     NSArray *files = [fm contentsOfDirectoryAtPath:dir error:nil];
     for (NSString *file in files) {
@@ -509,7 +540,6 @@ extern char **environ;
         }
     }
 
-    // 4. Record new reset token in Global CFPreferences so ZTechHook.dylib wipes in-app Keychain on next launch
     NSString *resetToken = [[NSUUID UUID] UUIDString];
     CFPreferencesSetValue(CFSTR("ZTechResetToken"),
                           (__bridge CFPropertyListRef)resetToken,
@@ -521,7 +551,7 @@ extern char **environ;
                              kCFPreferencesAnyHost);
     cleanedItems++;
 
-    // 5. Clear local URL caches
+    [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"ZTechActiveVaultAccountId"];
     [[NSURLCache sharedURLCache] removeAllCachedResponses];
     cleanedItems++;
 

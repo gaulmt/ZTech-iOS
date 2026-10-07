@@ -1,6 +1,12 @@
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
 
+typedef NS_ENUM(NSInteger, ZTechModelTierFilter) {
+    ZTechModelTierAll = 0,        // iPhone 8 -> iPhone 16 Pro Max
+    ZTechModelTierHighEnd = 1,    // iPhone 14 -> iPhone 16 Pro Max
+    ZTechModelTierIPhone16 = 2    // Only iPhone 16 / 16 Plus / 16 Pro / 16 Pro Max / 16e
+};
+
 @interface ZTechDeviceProfile : NSObject
 
 @property (nonatomic, copy) NSString *identifier;
@@ -15,15 +21,16 @@
 @property (nonatomic, copy) NSString *chipName;
 @property (nonatomic, assign) NSInteger ramGB;
 @property (nonatomic, copy) NSString *screenKey;
+@property (nonatomic, copy) NSString *activeProxy;
 @property (nonatomic, assign) NSInteger writtenFilesCount;
 @property (nonatomic, assign) NSInteger successItemsCount;
 
 - (NSString *)summaryLine1;
 - (NSString *)summaryLine2;
 - (NSString *)fullReportTextWithFlags:(BOOL)lockModel
-                         respringAfter:(BOOL)respring
-                            sameScreen:(BOOL)sameScreen
-                             matchChip:(BOOL)matchChip;
+                          respringAfter:(BOOL)respring
+                             sameScreen:(BOOL)sameScreen
+                              matchChip:(BOOL)matchChip;
 - (NSDictionary *)toDictionary;
 + (instancetype)fromDictionary:(NSDictionary *)dict;
 
@@ -35,6 +42,7 @@
 + (ZTechDeviceProfile *)generateProfileWithLockRealModel:(BOOL)lockModel
                                               sameScreen:(BOOL)sameScreen
                                                matchChip:(BOOL)matchChip
+                                               modelTier:(ZTechModelTierFilter)modelTier
                                              currentCity:(NSString *)currentCity;
 + (BOOL)writeProfileFiles:(ZTechDeviceProfile *)profile error:(NSError **)error;
 + (NSInteger)cleanResetAllProfileDataAndCache;
