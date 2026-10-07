@@ -55,9 +55,8 @@ jobs:
         run: |
           REPO_DIR="$GITHUB_WORKSPACE/sileo_repo"
           mkdir -p "$REPO_DIR/debs"
-          cp "$GITHUB_WORKSPACE/build_out/gaulmt_Tech_Rootless_arm64.deb" "$REPO_DIR/debs/"
-          cp "$GITHUB_WORKSPACE/build_out/gaulmt_Tech_Rootful_arm.deb" "$REPO_DIR/debs/"
-          cp "$GITHUB_WORKSPACE/build_out/gaulmt_Tech_TrollStore.tipa" "$REPO_DIR/debs/"
+          cp "$GITHUB_WORKSPACE/build_out/gaulmt_Tech_Rootless_arm64.deb" "$REPO_DIR/debs/gaulmt_Tech_Rootless_arm64.deb"
+          cp "$GITHUB_WORKSPACE/build_out/gaulmt_Tech_Rootful_arm.deb" "$REPO_DIR/debs/gaulmt_Tech_Rootful_arm.deb"
 
           if [ -f "ZTech_iOS/Resources/CydiaIcon.png" ]; then
             cp ZTech_iOS/Resources/CydiaIcon*.png "$REPO_DIR/"
@@ -66,20 +65,27 @@ jobs:
           fi
 
           cd "$REPO_DIR"
-          dpkg-scanpackages -m ./debs > Packages
+          # Scan without leading ./ so Filename is debs/gaulmt_Tech_*.deb
+          dpkg-scanpackages -m debs > Packages
           gzip -c9 Packages > Packages.gz
           bzip2 -c9 Packages > Packages.bz2
           xz -c9 Packages > Packages.xz
+
+          # Also keep legacy filenames in debs/ so unrefreshed Sileo clients never get 404
+          cp "$GITHUB_WORKSPACE/build_out/gaulmt_Tech_Rootless_arm64.deb" "$REPO_DIR/debs/ZTech_Rootless_arm64.deb"
+          cp "$GITHUB_WORKSPACE/build_out/gaulmt_Tech_Rootful_arm.deb" "$REPO_DIR/debs/ZTech_Rootful_arm.deb"
+          cp "$GITHUB_WORKSPACE/build_out/gaulmt_Tech_TrollStore.tipa" "$REPO_DIR/debs/gaulmt_Tech_TrollStore.tipa"
+          cp "$GITHUB_WORKSPACE/build_out/gaulmt_Tech_TrollStore.tipa" "$REPO_DIR/debs/ZTech_TrollStore.tipa"
 
           cat << 'EOF' > Release
           Origin: gaulmt -Tech Official Repo
           Label: gaulmt -Tech
           Suite: stable
-          Version: 3.0
+          Version: 3.0.1
           Codename: ios
           Architectures: iphoneos-arm iphoneos-arm64 iphoneos-arm64e
           Components: main
-          Description: Nguon cai dat gaulmt -Tech v3.0 truc tiep tren Sileo & Zebra (Ho tro Rootless & Rootful)
+          Description: Nguon cai dat gaulmt -Tech v3.0.1 truc tiep tren Sileo & Zebra (Ho tro Rootless & Rootful)
           EOF
 
           cat << 'EOF' > depiction.json
@@ -94,11 +100,11 @@ jobs:
                   {
                     "class": "DepictionSubheaderView",
                     "useBoldText": true,
-                    "title": "gaulmt -Tech v3.0 - Quản lý & Đổi cấu hình thiết bị"
+                    "title": "gaulmt -Tech v3.0.1 - Quản lý & Đổi cấu hình thiết bị"
                   },
                   {
                     "class": "DepictionMarkdownView",
-                    "markdown": "Công cụ **gaulmt -Tech v3.0** hỗ trợ cả **Rootless (Dopamine/palera1n)** và **Rootful** trực tiếp qua Sileo.\n\n- Tự động tạo bộ thông số thiết bị (`iPhone10,4` -> `iPhone16,2`)\n- Hỗ trợ đầy đủ màn hình 4.7-inch (iPhone 7/8/SE) đến 6.7-inch (Pro Max)\n- Đồng bộ vị trí Tỉnh/Thành & Nhà mạng theo IP thực tế\n- Xác thực & ghi 7 file cấu hình `.plist` kèm hỗ trợ Respring"
+                    "markdown": "Công cụ **gaulmt -Tech v3.0.1** hỗ trợ cả **Rootless (Dopamine/palera1n)** và **Rootful** trực tiếp qua Sileo.\n\n- Tự động tạo bộ thông số thiết bị (`iPhone10,4` -> `iPhone16,2`)\n- Hỗ trợ đầy đủ màn hình 4.7-inch (iPhone 7/8/SE) đến 6.7-inch (Pro Max)\n- Đồng bộ vị trí Tỉnh/Thành & Nhà mạng theo IP thực tế\n- Xác thực & ghi 7 file cấu hình `.plist` kèm hỗ trợ Respring"
                   }
                 ]
               }
@@ -129,12 +135,12 @@ jobs:
             <div class="card">
               <img class="logo" src="CydiaIcon@3x.png" alt="GT Logo">
               <h1>gaulmt -Tech</h1>
-              <div class="sub">Nguồn cài đặt v3.0 trực tiếp vào Sileo & Zebra</div>
-              <a class="btn btn-sileo" href="sileo://source/https://gaulmt.github.io/ZTech-iOS/">➕ Thêm nguồn vào Sileo ngay</a>
-              <a class="btn btn-zebra" href="zbra://sources/add/https://gaulmt.github.io/ZTech-iOS/">➕ Thêm nguồn vào Zebra</a>
-              <a class="btn btn-zebra" href="apple-magnifier://install?url=https://gaulmt.github.io/ZTech-iOS/debs/gaulmt_Tech_TrollStore.tipa">⚡ Cài trực tiếp qua TrollStore</a>
+              <div class="sub">Nguồn cài đặt v3.0.1 trực tiếp vào Sileo & Zebra</div>
+              <a class="btn btn-sileo" href="sileo://source/https://gaulmt.github.io/ztech-ios/">➕ Thêm nguồn vào Sileo ngay</a>
+              <a class="btn btn-zebra" href="zbra://sources/add/https://gaulmt.github.io/ztech-ios/">➕ Thêm nguồn vào Zebra</a>
+              <a class="btn btn-zebra" href="apple-magnifier://install?url=https://gaulmt.github.io/ztech-ios/debs/gaulmt_Tech_TrollStore.tipa">⚡ Cài trực tiếp qua TrollStore</a>
               <p style="color:#9ba19b;font-size:13px;margin-top:20px;">Hoặc copy link nguồn dưới đây dán vào mục Nguồn (Sources) trong Sileo:</p>
-              <div class="url-box">https://gaulmt.github.io/ZTech-iOS/</div>
+              <div class="url-box">https://gaulmt.github.io/ztech-ios/</div>
             </div>
           </body>
           </html>
@@ -149,7 +155,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git checkout -b gh-pages
           git add .
-          git commit -m "Deploy gaulmt -Tech Sileo APT Repository v3.0.0"
+          git commit -m "Deploy gaulmt -Tech Sileo APT Repository v3.0.1"
           git push --force "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" gh-pages
 
       - name: Upload Built Packages (.deb, .tipa, .ipa)
