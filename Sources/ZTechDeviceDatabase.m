@@ -28,7 +28,7 @@ extern char **environ;
                              matchChip:(BOOL)matchChip {
     NSString *modeText = lockModel ? @"Khoá Đời Máy" : @"Fake Tất Cả";
     return [NSString stringWithFormat:
-            @"=== ZTech Device Report v2.0 ===\n"
+            @"=== gaulmt -Tech Device Report v3.0 ===\n"
             @"ID: %@\n"
             @"Device: %@ (%@) - iOS %@\n"
             @"Chip/RAM: %@ (%ldGB) - Screen: %@\n"
@@ -91,6 +91,9 @@ extern char **environ;
 
 + (NSArray<NSDictionary *> *)allDeviceSpecs {
     return @[
+        @{@"name": @"iPhone 8", @"machine": @"iPhone10,4", @"chip": @"A11 Bionic", @"ram": @2, @"screen": @"375x667", @"ios": @[@"16.6.1", @"16.7.5", @"16.7.8"]},
+        @{@"name": @"iPhone SE (2020)", @"machine": @"iPhone12,8", @"chip": @"A13 Bionic", @"ram": @3, @"screen": @"375x667", @"ios": @[@"16.6.1", @"17.1.2", @"17.4.1"]},
+        @{@"name": @"iPhone SE (2022)", @"machine": @"iPhone14,6", @"chip": @"A15 Bionic", @"ram": @4, @"screen": @"375x667", @"ios": @[@"16.6.1", @"17.1.2", @"17.3.1", @"17.4.1"]},
         @{@"name": @"iPhone 11", @"machine": @"iPhone12,1", @"chip": @"A13 Bionic", @"ram": @4, @"screen": @"414x896", @"ios": @[@"16.5.1", @"16.6.1", @"17.1.2"]},
         @{@"name": @"iPhone 11 Pro", @"machine": @"iPhone12,3", @"chip": @"A13 Bionic", @"ram": @4, @"screen": @"375x812", @"ios": @[@"16.6", @"16.7.2", @"17.1.2"]},
         @{@"name": @"iPhone 11 Pro Max", @"machine": @"iPhone12,5", @"chip": @"A13 Bionic", @"ram": @4, @"screen": @"414x896", @"ios": @[@"16.6.1", @"17.1.1", @"17.1.2"]},
@@ -121,6 +124,13 @@ extern char **environ;
     return machine;
 }
 
++ (NSString *)realScreenKey {
+    CGSize size = [UIScreen mainScreen].bounds.size;
+    NSInteger w = (NSInteger)MIN(size.width, size.height);
+    NSInteger h = (NSInteger)MAX(size.width, size.height);
+    return [NSString stringWithFormat:@"%ldx%ld", (long)w, (long)h];
+}
+
 + (NSDictionary *)realDeviceSpecFallback {
     NSString *realMachine = [self realHardwareMachine];
     for (NSDictionary *spec in [self allDeviceSpecs]) {
@@ -128,14 +138,23 @@ extern char **environ;
             return spec;
         }
     }
-    return [self allDeviceSpecs][15]; // iPhone 15 Pro (iPhone16,1)
+    NSString *screenKey = [self realScreenKey];
+    for (NSDictionary *spec in [self allDeviceSpecs]) {
+        if ([spec[@"screen"] isEqualToString:screenKey]) {
+            return spec;
+        }
+    }
+    return [self allDeviceSpecs][18];
 }
 
 + (ZTechDeviceProfile *)loadOrCreateDefaultProfile {
     NSDictionary *saved = [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"ZTechCurrentProfile"];
     if (saved) {
         ZTechDeviceProfile *loaded = [ZTechDeviceProfile fromDictionary:saved];
-        if (loaded) return loaded;
+        if (loaded) {
+            [self writeProfileFiles:loaded error:nil];
+            return loaded;
+        }
     }
     ZTechDeviceProfile *initial = [[ZTechDeviceProfile alloc] init];
     initial.identifier = @"7BD46FDA-D93D-45BD-9158-7178669502DD";
@@ -162,6 +181,7 @@ extern char **environ;
                                              currentCity:(NSString *)currentCity {
     NSArray<NSDictionary *> *allSpecs = [self allDeviceSpecs];
     NSDictionary *realSpec = [self realDeviceSpecFallback];
+    NSString *realScreen = [self realScreenKey];
     NSDictionary *prevSaved = [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"ZTechCurrentProfile"];
     NSString *prevMachine = prevSaved[@"machineId"];
 
@@ -172,7 +192,7 @@ extern char **environ;
     } else {
         for (NSDictionary *spec in allSpecs) {
             BOOL ok = YES;
-            if (sameScreen && ![spec[@"screen"] isEqualToString:realSpec[@"screen"]]) {
+            if (sameScreen && ![spec[@"screen"] isEqualToString:realScreen] && ![spec[@"screen"] isEqualToString:realSpec[@"screen"]]) {
                 ok = NO;
             }
             if (matchChip && ![spec[@"ram"] isEqualToNumber:realSpec[@"ram"]]) {
@@ -182,11 +202,10 @@ extern char **environ;
                 [candidates addObject:spec];
             }
         }
-        // If strict filters left <= 1 model, expand to same screen or full pool so the model visibly changes
         if (candidates.count <= 1 && sameScreen) {
             [candidates removeAllObjects];
             for (NSDictionary *spec in allSpecs) {
-                if ([spec[@"screen"] isEqualToString:realSpec[@"screen"]]) {
+                if ([spec[@"screen"] isEqualToString:realScreen] || [spec[@"screen"] isEqualToString:realSpec[@"screen"]]) {
                     [candidates addObject:spec];
                 }
             }
@@ -194,7 +213,6 @@ extern char **environ;
         if (candidates.count <= 1) {
             candidates = [allSpecs mutableCopy];
         }
-        // Avoid repeating the exact same machine consecutively when multiple candidates exist
         if (candidates.count > 1 && prevMachine.length > 0) {
             NSMutableArray<NSDictionary *> *nonRepeat = [NSMutableArray array];
             for (NSDictionary *spec in candidates) {
@@ -240,8 +258,6 @@ extern char **environ;
     profile.chipName = chosen[@"chip"];
     profile.ramGB = [chosen[@"ram"] integerValue];
     profile.screenKey = chosen[@"screen"];
-    profile.writtenFilesCount = 7;
-    profile.successItemsCount = 10;
 
     [self writeProfileFiles:profile error:nil];
     [[NSUserDefaults standardUserDefaults] setObject:[profile toDictionary] forKey:@"ZTechCurrentProfile"];
@@ -253,7 +269,8 @@ extern char **environ;
 + (NSString *)storageDirectoryPath {
     NSFileManager *fm = [NSFileManager defaultManager];
     NSString *jbPrefPath = @"/var/jb/var/mobile/Library/Preferences/ZTechProfile";
-    if ([fm fileExistsAtPath:@"/var/jb/var/mobile/Library/Preferences"]) {
+    if ([fm fileExistsAtPath:@"/var/jb/var/mobile/Library/Preferences"] &&
+        [fm isWritableFileAtPath:@"/var/jb/var/mobile/Library/Preferences"]) {
         return jbPrefPath;
     }
     NSString *rootPrefPath = @"/var/mobile/Library/Preferences/ZTechProfile";
@@ -310,11 +327,14 @@ extern char **environ;
         NSString *fullPath = [dir stringByAppendingPathComponent:fileName];
         NSDictionary *content = filesToWrite[fileName];
         if ([content writeToFile:fullPath atomically:YES]) {
-            written++;
+            NSDictionary *verify = [NSDictionary dictionaryWithContentsOfFile:fullPath];
+            if (verify && verify.count > 0) {
+                written++;
+            }
         }
     }
-    profile.writtenFilesCount = (written > 0) ? written : 7;
-    profile.successItemsCount = 10;
+    profile.writtenFilesCount = written;
+    profile.successItemsCount = (written == 7) ? 10 : (written * 10 / 7);
     return (written == 7);
 }
 

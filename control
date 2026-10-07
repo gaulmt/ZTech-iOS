@@ -1,10 +1,11 @@
 Package: com.ztech.devicechanger
-Name: ZTech - Doi May & Cau Hinh
-Version: 2.0.0
+Name: gaulmt -Tech
+Version: 3.0.0
 Architecture: iphoneos-arm
-Description: ZTech v2.0 - Cong cu quan ly, dong bo IP va chuyen doi cau hinh thiet bi tren Sileo (Ho tro Rootless & Rootful)
-Maintainer: ZTech Official
-Author: ZTech Official
+Description: gaulmt -Tech v3.0 - Cong cu quan ly, dong bo IP va chuyen doi cau hinh thiet bi tren Sileo (Ho tro Rootless & Rootful)
+Maintainer: gaulmt -Tech
+Author: gaulmt -Tech
 Section: Utilities
 Depends: firmware (>= 14.0)
+Icon: https://gaulmt.github.io/ZTech-iOS/CydiaIcon@3x.png
 SileoDepiction: https://gaulmt.github.io/ZTech-iOS/depiction.json

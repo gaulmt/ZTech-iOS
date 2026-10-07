@@ -52,6 +52,7 @@
     [self buildSwitchesCard];
     [self buildActionButtons];
     [self buildCheckCard];
+    [self onSwitchChanged:nil];
     [self refreshUIWithCurrentProfile];
 }
 
@@ -126,27 +127,51 @@
     UIView *headerContainer = [[UIView alloc] init];
     headerContainer.translatesAutoresizingMaskIntoConstraints = NO;
 
+    UIView *logoBadge = [[UIView alloc] init];
+    logoBadge.translatesAutoresizingMaskIntoConstraints = NO;
+    logoBadge.backgroundColor = [UIColor colorWithRed:0.10 green:0.12 blue:0.10 alpha:1.0];
+    logoBadge.layer.cornerRadius = 12.0;
+    logoBadge.layer.borderWidth = 1.5;
+    logoBadge.layer.borderColor = [self goldAccentColor].CGColor;
+
+    UILabel *logoLabel = [[UILabel alloc] init];
+    logoLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    logoLabel.text = @"GT";
+    logoLabel.font = [UIFont systemFontOfSize:19.0 weight:UIFontWeightHeavy];
+    logoLabel.textColor = [self goldAccentColor];
+    logoLabel.textAlignment = NSTextAlignmentCenter;
+    [logoBadge addSubview:logoLabel];
+
     UILabel *titleLabel = [[UILabel alloc] init];
     titleLabel.translatesAutoresizingMaskIntoConstraints = NO;
-    titleLabel.text = @"ZTech";
-    titleLabel.font = [UIFont systemFontOfSize:34.0 weight:UIFontWeightBold];
+    titleLabel.text = @"gaulmt -Tech";
+    titleLabel.font = [UIFont systemFontOfSize:30.0 weight:UIFontWeightBold];
     titleLabel.textColor = [UIColor whiteColor];
 
     UILabel *subLabel = [[UILabel alloc] init];
     subLabel.translatesAutoresizingMaskIntoConstraints = NO;
-    subLabel.text = @"Change identity · Đổi máy Zalo";
-    subLabel.font = [UIFont systemFontOfSize:16.0 weight:UIFontWeightRegular];
+    subLabel.text = @"Change identity · Đổi máy Zalo (v3.0)";
+    subLabel.font = [UIFont systemFontOfSize:15.5 weight:UIFontWeightRegular];
     subLabel.textColor = [UIColor colorWithRed:0.75 green:0.76 blue:0.72 alpha:1.0];
 
+    [headerContainer addSubview:logoBadge];
     [headerContainer addSubview:titleLabel];
     [headerContainer addSubview:subLabel];
 
     [NSLayoutConstraint activateConstraints:@[
-        [titleLabel.topAnchor constraintEqualToAnchor:headerContainer.topAnchor],
-        [titleLabel.leadingAnchor constraintEqualToAnchor:headerContainer.leadingAnchor constant:2.0],
+        [logoBadge.topAnchor constraintEqualToAnchor:headerContainer.topAnchor constant:2.0],
+        [logoBadge.leadingAnchor constraintEqualToAnchor:headerContainer.leadingAnchor constant:2.0],
+        [logoBadge.widthAnchor constraintEqualToConstant:44.0],
+        [logoBadge.heightAnchor constraintEqualToConstant:44.0],
+
+        [logoLabel.centerXAnchor constraintEqualToAnchor:logoBadge.centerXAnchor],
+        [logoLabel.centerYAnchor constraintEqualToAnchor:logoBadge.centerYAnchor],
+
+        [titleLabel.centerYAnchor constraintEqualToAnchor:logoBadge.centerYAnchor],
+        [titleLabel.leadingAnchor constraintEqualToAnchor:logoBadge.trailingAnchor constant:12.0],
         [titleLabel.trailingAnchor constraintEqualToAnchor:headerContainer.trailingAnchor],
 
-        [subLabel.topAnchor constraintEqualToAnchor:titleLabel.bottomAnchor constant:4.0],
+        [subLabel.topAnchor constraintEqualToAnchor:logoBadge.bottomAnchor constant:8.0],
         [subLabel.leadingAnchor constraintEqualToAnchor:headerContainer.leadingAnchor constant:2.0],
         [subLabel.trailingAnchor constraintEqualToAnchor:headerContainer.trailingAnchor],
         [subLabel.bottomAnchor constraintEqualToAnchor:headerContainer.bottomAnchor constant:-2.0]
@@ -273,10 +298,17 @@
     stack.spacing = 12.0;
     [card addSubview:stack];
 
+    NSUserDefaults *prefs = [NSUserDefaults standardUserDefaults];
+    BOOL hasSavedSwitches = ([prefs objectForKey:@"ZTech_SwitchInitialized"] != nil);
+    BOOL defLock = hasSavedSwitches ? [prefs boolForKey:@"ZTech_LockModel"] : NO;
+    BOOL defRespring = hasSavedSwitches ? [prefs boolForKey:@"ZTech_Respring"] : NO;
+    BOOL defScreen = hasSavedSwitches ? [prefs boolForKey:@"ZTech_SameScreen"] : YES;
+    BOOL defChip = hasSavedSwitches ? [prefs boolForKey:@"ZTech_MatchChip"] : YES;
+
     UISwitch *sw1 = nil; UILabel *sub1 = nil;
     UIView *row1 = [self createSwitchRowWithTitle:@"Khoá đời máy · Giữ máy thật"
                                          subtitle:@"OFF: Fake Tất Cả — theo Fake màn / Khớp chip."
-                                        isDefault:NO
+                                        isDefault:defLock
                                         outSwitch:&sw1
                                       outSubLabel:&sub1];
     self.lockModelSwitch = sw1;
@@ -285,7 +317,7 @@
     UISwitch *sw2 = nil; UILabel *sub2 = nil;
     UIView *row2 = [self createSwitchRowWithTitle:@"Respring after Change · Làm mới SB"
                                          subtitle:@"OFF: xong là dùng luôn, không respring."
-                                        isDefault:NO
+                                        isDefault:defRespring
                                         outSwitch:&sw2
                                       outSubLabel:&sub2];
     self.respringSwitch = sw2;
@@ -294,7 +326,7 @@
     UISwitch *sw3 = nil; UILabel *sub3 = nil;
     UIView *row3 = [self createSwitchRowWithTitle:@"Fake màn hình · Chỉ máy cùng màn"
                                          subtitle:@"ON: chỉ bốc máy CÙNG MÀN HÌNH máy thật — màn không lệch."
-                                        isDefault:YES
+                                        isDefault:defScreen
                                         outSwitch:&sw3
                                       outSubLabel:&sub3];
     self.sameScreenSwitch = sw3;
@@ -303,7 +335,7 @@
     UISwitch *sw4 = nil; UILabel *sub4 = nil;
     UIView *row4 = [self createSwitchRowWithTitle:@"Khớp chip · Sạch tuyệt đối"
                                          subtitle:@"ON: chỉ máy cùng CHIP+RAM+màn → sạch tuyệt đối (ít lựa chọn)."
-                                        isDefault:YES
+                                        isDefault:defChip
                                         outSwitch:&sw4
                                       outSubLabel:&sub4];
     self.matchChipSwitch = sw4;
@@ -402,6 +434,14 @@
 #pragma mark - Actions & Updates
 
 - (void)onSwitchChanged:(UISwitch *)sender {
+    NSUserDefaults *prefs = [NSUserDefaults standardUserDefaults];
+    [prefs setBool:YES forKey:@"ZTech_SwitchInitialized"];
+    [prefs setBool:self.lockModelSwitch.isOn forKey:@"ZTech_LockModel"];
+    [prefs setBool:self.respringSwitch.isOn forKey:@"ZTech_Respring"];
+    [prefs setBool:self.sameScreenSwitch.isOn forKey:@"ZTech_SameScreen"];
+    [prefs setBool:self.matchChipSwitch.isOn forKey:@"ZTech_MatchChip"];
+    [prefs synchronize];
+
     self.lockModelSubLabel.text = self.lockModelSwitch.isOn
         ? @"ON: Giữ nguyên đời máy thật — chỉ đổi ID & thông số phụ."
         : @"OFF: Fake Tất Cả — theo Fake màn / Khớp chip.";
@@ -430,11 +470,16 @@
 
 - (void)refreshCheckFooterText {
     NSString *modeStr = self.lockModelSwitch.isOn ? @"Đang Khoá Đời Máy" : @"Đang Fake Tất Cả";
+    NSString *statusDot = (self.currentProfile.writtenFilesCount >= 7) ? @"🟢" : @"🔴";
     self.checkDetailLabel.text = [NSString stringWithFormat:
-        @"Xanh = fake đã ghi vào Zalo. Đỏ = chưa ghi.\n"
-        @"%ld mục thành công · 0 chưa ghi. Đã ghi %ld file vào Zalo. %@. Đóng Zalo rồi mở lại mới có hiệu lực.",
+        @"%@ Xanh = fake đã ghi vào hệ thống. Đỏ = chưa ghi.\n"
+        @"%ld mục thành công · 0 chưa ghi. Đã ghi %ld file cấu hình (%@ · %@GB · Màn %@). %@.",
+        statusDot,
         (long)self.currentProfile.successItemsCount,
         (long)self.currentProfile.writtenFilesCount,
+        self.currentProfile.chipName ?: @"A17 Pro",
+        @(self.currentProfile.ramGB),
+        self.currentProfile.screenKey ?: @"393x852",
         modeStr];
 }
 
