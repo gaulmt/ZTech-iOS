@@ -50,13 +50,11 @@ jobs:
           cp control control.bak
           sed -i '' 's/^Package: com.ztech.devicechanger/Package: com.ztech.devicechanger.rootless/' control
           sed -i '' 's/^Name: gaulmt -Tech/Name: gaulmt -Tech (Rootless)/' control
-          sed -i '' '1s|^#!/bin/sh|#!/var/jb/bin/sh|' layout/DEBIAN/postinst
           chmod 0755 layout/DEBIAN/postinst
           rm -rf packages .theos
           make clean package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless
           cp packages/*.deb "$GITHUB_WORKSPACE/build_out/gaulmt_Tech_Rootless_arm64.deb"
           mv control.bak control
-          sed -i '' '1s|^#!/var/jb/bin/sh|#!/bin/sh|' layout/DEBIAN/postinst
 
       - name: Generate Sileo APT Repository (Root + ztech-ios + ZTech-iOS)
         run: |
@@ -86,11 +84,11 @@ jobs:
           Origin: gaulmt -Tech Official Repo
           Label: gaulmt -Tech
           Suite: stable
-          Version: 3.1.0
+          Version: 3.2.0
           Codename: ios
           Architectures: iphoneos-arm iphoneos-arm64 iphoneos-arm64e
           Components: main
-          Description: Nguon cai dat gaulmt -Tech v3.1.0 truc tiep tren Sileo & Zebra (Ho tro Rootless & Rootful)
+          Description: Nguon cai dat gaulmt -Tech v3.2.0 truc tiep tren Sileo & Zebra (Ho tro Rootless & Rootful)
           EOF
 
           cat << 'EOF' > depiction.json
@@ -105,11 +103,11 @@ jobs:
                   {
                     "class": "DepictionSubheaderView",
                     "useBoldText": true,
-                    "title": "gaulmt -Tech v3.1.0 - Quản lý & Đổi cấu hình thiết bị"
+                    "title": "gaulmt -Tech v3.2.0 - Quản lý & Đổi cấu hình thiết bị"
                   },
                   {
                     "class": "DepictionMarkdownView",
-                    "markdown": "Công cụ **gaulmt -Tech v3.1.0** hỗ trợ cả **Rootless (Dopamine/palera1n)** và **Rootful (Checkra1n/Unc0ver/Odyssey)** trực tiếp qua Sileo.\n\n- Tự động tạo Icon ngoài màn hình chính ngay khi cài xong\n- Tự động tạo bộ thông số thiết bị (`iPhone10,4` -> `iPhone16,2`)\n- Hỗ trợ đầy đủ màn hình 4.7-inch (iPhone 7/8/SE) đến 6.7-inch (Pro Max)\n- Đồng bộ vị trí Tỉnh/Thành & Nhà mạng theo IP thực tế"
+                    "markdown": "Công cụ **gaulmt -Tech v3.2.0** hỗ trợ cả **Rootless (Dopamine/palera1n)** và **Rootful (Checkra1n/Unc0ver/Odyssey)** trực tiếp qua Sileo.\n\n- Giữ nguyên chữ ký CoreTrust/amfid khi giải nén dpkg\n- Tự động tạo bộ thông số thiết bị (`iPhone10,4` -> `iPhone16,2`)\n- Hỗ trợ đầy đủ màn hình 4.7-inch (iPhone 7/8/SE) đến 6.7-inch (Pro Max)\n- Đồng bộ vị trí Tỉnh/Thành & Nhà mạng theo IP thực tế"
                   }
                 ]
               }
@@ -140,7 +138,7 @@ jobs:
             <div class="card">
               <img class="logo" src="CydiaIcon@3x.png" alt="GT Logo">
               <h1>gaulmt -Tech</h1>
-              <div class="sub">Nguồn cài đặt v3.1.0 trực tiếp vào Sileo & Zebra</div>
+              <div class="sub">Nguồn cài đặt v3.2.0 trực tiếp vào Sileo & Zebra</div>
               <a class="btn btn-sileo" href="sileo://source/https://gaulmt.github.io/">➕ Thêm nguồn vào Sileo ngay</a>
               <a class="btn btn-zebra" href="zbra://sources/add/https://gaulmt.github.io/">➕ Thêm nguồn vào Zebra</a>
               <a class="btn btn-zebra" href="apple-magnifier://install?url=https://gaulmt.github.io/debs/gaulmt_Tech_TrollStore.tipa">⚡ Cài trực tiếp qua TrollStore</a>
@@ -165,7 +163,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git checkout -b gh-pages
           git add .
-          git commit -m "Deploy Multi-Path Sileo APT Repository v3.1.0"
+          git commit -m "Deploy Multi-Path Sileo APT Repository v3.2.0"
           git push --force "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" gh-pages
 
       - name: Upload Built Packages (.deb, .tipa, .ipa)

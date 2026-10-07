@@ -1,8 +1,8 @@
 Package: com.ztech.devicechanger
 Name: gaulmt -Tech
-Version: 3.1.0
+Version: 3.2.0
 Architecture: iphoneos-arm
-Description: gaulmt -Tech v3.1 - Cong cu quan ly, dong bo IP va chuyen doi cau hinh thiet bi tren Sileo (Ho tro tu dong Rootful & Rootless)
+Description: gaulmt -Tech v3.2 - Cong cu quan ly, dong bo IP va chuyen doi cau hinh thiet bi tren Sileo (Ho tro Rootful & Rootless)
 Maintainer: gaulmt -Tech
 Author: gaulmt -Tech
 Section: Utilities
