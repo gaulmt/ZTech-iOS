@@ -38,6 +38,9 @@ NS_ASSUME_NONNULL_BEGIN
 
 + (BOOL)deleteAccountWithId:(NSString *)accountId;
 
++ (nullable NSString *)findZaloDataContainerPath;
++ (NSDictionary<NSString *, NSString *> *)findZaloAppGroupContainers;
+
 + (void)launchZaloApp;
 
 @end
