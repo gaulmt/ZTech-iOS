@@ -1,7 +1,9 @@
 #import "ZTechDeviceDatabase.h"
 #import <sys/utsname.h>
+#import <sys/stat.h>
 #import <spawn.h>
 #import <Security/Security.h>
+#import <CoreFoundation/CoreFoundation.h>
 
 extern char **environ;
 
@@ -29,7 +31,7 @@ extern char **environ;
                              matchChip:(BOOL)matchChip {
     NSString *modeText = lockModel ? @"Khoá Đời Máy" : @"Fake Tất Cả";
     return [NSString stringWithFormat:
-            @"=== gaulmt -Tech Device Report v3.3 ===\n"
+            @"=== gaulmt -Tech Device Report v4.1 ===\n"
             @"ID: %@\n"
             @"Device: %@ (%@) - iOS %@\n"
             @"Chip/RAM: %@ (%ldGB) - Screen: %@\n"
@@ -50,17 +52,17 @@ extern char **environ;
 - (NSDictionary *)toDictionary {
     return @{
         @"identifier": self.identifier ?: @"",
-        @"modelName": self.modelName ?: @"",
-        @"machineId": self.machineId ?: @"",
-        @"iosVersion": self.iosVersion ?: @"",
-        @"batteryPercent": @(self.batteryPercent),
-        @"carrier": self.carrier ?: @"",
-        @"wifiSsid": self.wifiSsid ?: @"",
-        @"city": self.city ?: @"",
-        @"contactsCount": @(self.contactsCount),
-        @"chipName": self.chipName ?: @"",
-        @"ramGB": @(self.ramGB),
-        @"screenKey": self.screenKey ?: @"",
+        @"modelName": self.modelName ?: @"iPhone 14 Pro",
+        @"machineId": self.machineId ?: @"iPhone15,2",
+        @"iosVersion": self.iosVersion ?: @"16.6.1",
+        @"batteryPercent": @(self.batteryPercent > 0 ? self.batteryPercent : 68),
+        @"carrier": self.carrier ?: @"MobiFone",
+        @"wifiSsid": self.wifiSsid ?: @"The Coffee House",
+        @"city": self.city ?: @"Hải Phòng",
+        @"contactsCount": @(self.contactsCount > 0 ? self.contactsCount : 36),
+        @"chipName": self.chipName ?: @"A16 Bionic",
+        @"ramGB": @(self.ramGB > 0 ? self.ramGB : 6),
+        @"screenKey": self.screenKey ?: @"393x852",
         @"writtenFilesCount": @(self.writtenFilesCount),
         @"successItemsCount": @(self.successItemsCount)
     };
@@ -72,14 +74,22 @@ extern char **environ;
     p.identifier = dict[@"identifier"] ?: [[NSUUID UUID] UUIDString];
     p.modelName = dict[@"modelName"] ?: @"iPhone 15 Pro";
     p.machineId = dict[@"machineId"] ?: @"iPhone16,1";
-    p.iosVersion = dict[@"iosVersion"] ?: @"17.1.2";
-    p.batteryPercent = [dict[@"batteryPercent"] integerValue] ?: 60;
+    if ([p.machineId hasPrefix:@"iPhone9,"] || [p.machineId hasPrefix:@"iPhone8,"] || [p.machineId hasPrefix:@"iPhone7,"]) {
+        p.machineId = @"iPhone10,4";
+        p.modelName = @"iPhone 8";
+    }
+    NSString *ver = dict[@"iosVersion"] ?: @"16.6.1";
+    if ([ver integerValue] < 16) {
+        ver = @"16.6.1";
+    }
+    p.iosVersion = ver;
+    p.batteryPercent = [dict[@"batteryPercent"] integerValue] ?: 65;
     p.carrier = dict[@"carrier"] ?: @"MobiFone";
     p.wifiSsid = dict[@"wifiSsid"] ?: @"The Coffee House";
     p.city = dict[@"city"] ?: @"Hải Phòng";
     p.contactsCount = [dict[@"contactsCount"] integerValue] ?: 36;
     p.chipName = dict[@"chipName"] ?: @"A17 Pro";
-    p.ramGB = [dict[@"ramGB"] integerValue] ?: 8;
+    p.ramGB = [dict[@"ramGB"] integerValue] ?: 6;
     p.screenKey = dict[@"screenKey"] ?: @"393x852";
     p.writtenFilesCount = [dict[@"writtenFilesCount"] integerValue] ?: 7;
     p.successItemsCount = [dict[@"successItemsCount"] integerValue] ?: 10;
@@ -90,24 +100,30 @@ extern char **environ;
 
 @implementation ZTechDeviceDatabase
 
+// Strictly iPhone 8 (iPhone10,4) and newer, and strictly iOS 16.0+
 + (NSArray<NSDictionary *> *)allDeviceSpecs {
     return @[
-        @{@"name": @"iPhone 8", @"machine": @"iPhone10,4", @"chip": @"A11 Bionic", @"ram": @2, @"screen": @"375x667", @"ios": @[@"16.6.1", @"16.7.5", @"16.7.8"]},
-        @{@"name": @"iPhone SE (2020)", @"machine": @"iPhone12,8", @"chip": @"A13 Bionic", @"ram": @3, @"screen": @"375x667", @"ios": @[@"16.6.1", @"17.1.2", @"17.4.1"]},
+        @{@"name": @"iPhone 8", @"machine": @"iPhone10,4", @"chip": @"A11 Bionic", @"ram": @2, @"screen": @"375x667", @"ios": @[@"16.4.1", @"16.6.1", @"16.7.5", @"16.7.8"]},
+        @{@"name": @"iPhone 8 Plus", @"machine": @"iPhone10,5", @"chip": @"A11 Bionic", @"ram": @3, @"screen": @"414x736", @"ios": @[@"16.5.1", @"16.6.1", @"16.7.5", @"16.7.8"]},
+        @{@"name": @"iPhone X", @"machine": @"iPhone10,6", @"chip": @"A11 Bionic", @"ram": @3, @"screen": @"375x812", @"ios": @[@"16.5.1", @"16.6.1", @"16.7.5", @"16.7.8"]},
+        @{@"name": @"iPhone XR", @"machine": @"iPhone11,8", @"chip": @"A12 Bionic", @"ram": @3, @"screen": @"414x896", @"ios": @[@"16.5.1", @"16.6.1", @"17.1.2", @"17.3.1"]},
+        @{@"name": @"iPhone XS", @"machine": @"iPhone11,2", @"chip": @"A12 Bionic", @"ram": @4, @"screen": @"375x812", @"ios": @[@"16.6.1", @"17.1.2", @"17.3.1", @"17.4.1"]},
+        @{@"name": @"iPhone XS Max", @"machine": @"iPhone11,6", @"chip": @"A12 Bionic", @"ram": @4, @"screen": @"414x896", @"ios": @[@"16.6.1", @"17.1.2", @"17.3.1", @"17.4.1"]},
+        @{@"name": @"iPhone SE (2020)", @"machine": @"iPhone12,8", @"chip": @"A13 Bionic", @"ram": @3, @"screen": @"375x667", @"ios": @[@"16.6.1", @"17.1.2", @"17.3.1", @"17.4.1"]},
         @{@"name": @"iPhone SE (2022)", @"machine": @"iPhone14,6", @"chip": @"A15 Bionic", @"ram": @4, @"screen": @"375x667", @"ios": @[@"16.6.1", @"17.1.2", @"17.3.1", @"17.4.1"]},
-        @{@"name": @"iPhone 11", @"machine": @"iPhone12,1", @"chip": @"A13 Bionic", @"ram": @4, @"screen": @"414x896", @"ios": @[@"16.5.1", @"16.6.1", @"17.1.2"]},
-        @{@"name": @"iPhone 11 Pro", @"machine": @"iPhone12,3", @"chip": @"A13 Bionic", @"ram": @4, @"screen": @"375x812", @"ios": @[@"16.6", @"16.7.2", @"17.1.2"]},
-        @{@"name": @"iPhone 11 Pro Max", @"machine": @"iPhone12,5", @"chip": @"A13 Bionic", @"ram": @4, @"screen": @"414x896", @"ios": @[@"16.6.1", @"17.1.1", @"17.1.2"]},
-        @{@"name": @"iPhone 12", @"machine": @"iPhone13,2", @"chip": @"A14 Bionic", @"ram": @4, @"screen": @"390x844", @"ios": @[@"16.6.1", @"16.7.2", @"17.1.2"]},
-        @{@"name": @"iPhone 12 Pro", @"machine": @"iPhone13,3", @"chip": @"A14 Bionic", @"ram": @6, @"screen": @"390x844", @"ios": @[@"16.6.1", @"17.0.3", @"17.1.2"]},
-        @{@"name": @"iPhone 12 Pro Max", @"machine": @"iPhone13,4", @"chip": @"A14 Bionic", @"ram": @6, @"screen": @"428x926", @"ios": @[@"16.6.1", @"17.1.1", @"17.1.2"]},
+        @{@"name": @"iPhone 11", @"machine": @"iPhone12,1", @"chip": @"A13 Bionic", @"ram": @4, @"screen": @"414x896", @"ios": @[@"16.5.1", @"16.6.1", @"17.1.2", @"17.4.1"]},
+        @{@"name": @"iPhone 11 Pro", @"machine": @"iPhone12,3", @"chip": @"A13 Bionic", @"ram": @4, @"screen": @"375x812", @"ios": @[@"16.6", @"16.7.2", @"17.1.2", @"17.4.1"]},
+        @{@"name": @"iPhone 11 Pro Max", @"machine": @"iPhone12,5", @"chip": @"A13 Bionic", @"ram": @4, @"screen": @"414x896", @"ios": @[@"16.6.1", @"17.1.1", @"17.1.2", @"17.4.1"]},
+        @{@"name": @"iPhone 12", @"machine": @"iPhone13,2", @"chip": @"A14 Bionic", @"ram": @4, @"screen": @"390x844", @"ios": @[@"16.6.1", @"16.7.2", @"17.1.2", @"17.4.1"]},
+        @{@"name": @"iPhone 12 Pro", @"machine": @"iPhone13,3", @"chip": @"A14 Bionic", @"ram": @6, @"screen": @"390x844", @"ios": @[@"16.6.1", @"17.0.3", @"17.1.2", @"17.4.1"]},
+        @{@"name": @"iPhone 12 Pro Max", @"machine": @"iPhone13,4", @"chip": @"A14 Bionic", @"ram": @6, @"screen": @"428x926", @"ios": @[@"16.6.1", @"17.1.1", @"17.1.2", @"17.4.1"]},
         @{@"name": @"iPhone 13", @"machine": @"iPhone14,5", @"chip": @"A15 Bionic", @"ram": @4, @"screen": @"390x844", @"ios": @[@"16.5", @"16.6.1", @"17.1.2", @"17.2.1"]},
-        @{@"name": @"iPhone 13 Pro", @"machine": @"iPhone14,2", @"chip": @"A15 Bionic", @"ram": @6, @"screen": @"390x844", @"ios": @[@"16.6", @"17.1.2", @"17.2.1"]},
-        @{@"name": @"iPhone 13 Pro Max", @"machine": @"iPhone14,3", @"chip": @"A15 Bionic", @"ram": @6, @"screen": @"428x926", @"ios": @[@"16.6.1", @"17.1.2", @"17.2.1"]},
-        @{@"name": @"iPhone 14", @"machine": @"iPhone14,7", @"chip": @"A15 Bionic", @"ram": @6, @"screen": @"390x844", @"ios": @[@"16.6.1", @"17.1.1", @"17.1.2"]},
-        @{@"name": @"iPhone 14 Plus", @"machine": @"iPhone14,8", @"chip": @"A15 Bionic", @"ram": @6, @"screen": @"428x926", @"ios": @[@"16.6.1", @"17.1.2", @"17.2.1"]},
+        @{@"name": @"iPhone 13 Pro", @"machine": @"iPhone14,2", @"chip": @"A15 Bionic", @"ram": @6, @"screen": @"390x844", @"ios": @[@"16.6", @"17.1.2", @"17.2.1", @"17.4.1"]},
+        @{@"name": @"iPhone 13 Pro Max", @"machine": @"iPhone14,3", @"chip": @"A15 Bionic", @"ram": @6, @"screen": @"428x926", @"ios": @[@"16.6.1", @"17.1.2", @"17.2.1", @"17.4.1"]},
+        @{@"name": @"iPhone 14", @"machine": @"iPhone14,7", @"chip": @"A15 Bionic", @"ram": @6, @"screen": @"390x844", @"ios": @[@"16.6.1", @"17.1.1", @"17.1.2", @"17.4.1"]},
+        @{@"name": @"iPhone 14 Plus", @"machine": @"iPhone14,8", @"chip": @"A15 Bionic", @"ram": @6, @"screen": @"428x926", @"ios": @[@"16.6.1", @"17.1.2", @"17.2.1", @"17.4.1"]},
         @{@"name": @"iPhone 14 Pro", @"machine": @"iPhone15,2", @"chip": @"A16 Bionic", @"ram": @6, @"screen": @"393x852", @"ios": @[@"16.6.1", @"17.0.3", @"17.1.2", @"17.3.1"]},
-        @{@"name": @"iPhone 14 Pro Max", @"machine": @"iPhone15,3", @"chip": @"A16 Bionic", @"ram": @6, @"screen": @"430x932", @"ios": @[@"16.6.1", @"17.1.2", @"17.3.1"]},
+        @{@"name": @"iPhone 14 Pro Max", @"machine": @"iPhone15,3", @"chip": @"A16 Bionic", @"ram": @6, @"screen": @"430x932", @"ios": @[@"16.6.1", @"17.1.2", @"17.3.1", @"17.4.1"]},
         @{@"name": @"iPhone 15", @"machine": @"iPhone15,4", @"chip": @"A16 Bionic", @"ram": @6, @"screen": @"393x852", @"ios": @[@"17.0.3", @"17.1.1", @"17.1.2", @"17.4.1"]},
         @{@"name": @"iPhone 15 Plus", @"machine": @"iPhone15,5", @"chip": @"A16 Bionic", @"ram": @6, @"screen": @"430x932", @"ios": @[@"17.1.1", @"17.1.2", @"17.4.1"]},
         @{@"name": @"iPhone 15 Pro", @"machine": @"iPhone16,1", @"chip": @"A17 Pro", @"ram": @8, @"screen": @"393x852", @"ios": @[@"17.1.1", @"17.1.2", @"17.2.1", @"17.4.1"]},
@@ -121,6 +137,10 @@ extern char **environ;
     NSString *machine = [NSString stringWithCString:systemInfo.machine encoding:NSUTF8StringEncoding];
     if (!machine || ![machine hasPrefix:@"iPhone"]) {
         return @"iPhone16,1";
+    }
+    // Enforce minimum iPhone 8 (iPhone10,4) even if real device is iPhone 7 (iPhone9,x)
+    if ([machine hasPrefix:@"iPhone9,"] || [machine hasPrefix:@"iPhone8,"] || [machine hasPrefix:@"iPhone7,"]) {
+        return @"iPhone10,4";
     }
     return machine;
 }
@@ -145,7 +165,7 @@ extern char **environ;
             return spec;
         }
     }
-    return [self allDeviceSpecs][18];
+    return [self allDeviceSpecs][23]; // iPhone 15 Pro (iPhone16,1)
 }
 
 + (ZTechDeviceProfile *)loadOrCreateDefaultProfile {
@@ -264,7 +284,23 @@ extern char **environ;
     [[NSUserDefaults standardUserDefaults] setObject:[profile toDictionary] forKey:@"ZTechCurrentProfile"];
     [[NSUserDefaults standardUserDefaults] synchronize];
 
+    // Terminate AIDA64 if running in background so it reloads fresh with the new profile
+    [self terminateBackgroundInspectors];
+
     return profile;
+}
+
++ (void)terminateBackgroundInspectors {
+    NSArray<NSString *> *killBins = @[@"/var/jb/usr/bin/killall", @"/usr/bin/killall"];
+    NSFileManager *fm = [NSFileManager defaultManager];
+    for (NSString *bin in killBins) {
+        if ([fm isExecutableFileAtPath:bin]) {
+            pid_t pid;
+            const char *args[] = { [bin UTF8String], "-9", "AIDA64", NULL };
+            posix_spawn(&pid, [bin UTF8String], NULL, NULL, (char *const *)args, environ);
+            break;
+        }
+    }
 }
 
 + (NSString *)storageDirectoryPath {
@@ -303,7 +339,7 @@ extern char **environ;
         },
         @"03_system_os.plist": @{
             @"OSVersion": profile.iosVersion ?: @"",
-            @"BuildVersion": @"21B101"
+            @"BuildVersion": @"21E236"
         },
         @"04_screen_display.plist": @{
             @"ScreenResolution": profile.screenKey ?: @"393x852",
@@ -328,6 +364,7 @@ extern char **environ;
         NSString *fullPath = [dir stringByAppendingPathComponent:fileName];
         NSDictionary *content = filesToWrite[fileName];
         if ([content writeToFile:fullPath atomically:YES]) {
+            chmod([fullPath UTF8String], 0644);
             NSDictionary *verify = [NSDictionary dictionaryWithContentsOfFile:fullPath];
             if (verify && verify.count > 0) {
                 written++;
@@ -335,16 +372,34 @@ extern char **environ;
         }
     }
 
-    // Write shared profile plist with 0644 permissions for ZTechHook.dylib
     NSDictionary *sharedDict = [profile toDictionary];
-    NSArray<NSString *> *sharedPaths = @[
-        @"/var/jb/var/mobile/Library/Preferences/com.ztech.profile.plist",
-        @"/var/mobile/Library/Preferences/com.ztech.profile.plist",
-        @"/var/tmp/com.ztech.profile.plist"
+
+    // 1. Save to Global CFPreferences (.GlobalPreferences) readable by all sandboxed App Store apps via cfprefsd
+    CFPreferencesSetValue(CFSTR("ZTechGlobalProfile"),
+                          (__bridge CFPropertyListRef)sharedDict,
+                          kCFPreferencesAnyApplication,
+                          kCFPreferencesCurrentUser,
+                          kCFPreferencesAnyHost);
+    CFPreferencesSynchronize(kCFPreferencesAnyApplication,
+                             kCFPreferencesCurrentUser,
+                             kCFPreferencesAnyHost);
+
+    // 2. Also write world-readable shared plist files across all jailbreak paths
+    NSArray<NSString *> *sharedDirs = @[
+        @"/Library/Preferences/ZTechShared",
+        @"/var/jb/Library/Preferences/ZTechShared",
+        @"/var/jb/var/mobile/Library/Preferences",
+        @"/var/mobile/Library/Preferences",
+        @"/var/tmp"
     ];
-    for (NSString *sp in sharedPaths) {
+    for (NSString *sdir in sharedDirs) {
+        if (![fm fileExistsAtPath:sdir]) {
+            [fm createDirectoryAtPath:sdir withIntermediateDirectories:YES attributes:nil error:nil];
+            chmod([sdir UTF8String], 0777);
+        }
+        NSString *sp = [sdir stringByAppendingPathComponent:@"com.ztech.profile.plist"];
         if ([sharedDict writeToFile:sp atomically:YES]) {
-            [fm setAttributes:@{NSFilePosixPermissions: @(0644)} ofItemAtPath:sp error:nil];
+            chmod([sp UTF8String], 0644);
         }
     }
 
@@ -357,7 +412,6 @@ extern char **environ;
     NSInteger cleanedItems = 0;
     NSFileManager *fm = [NSFileManager defaultManager];
 
-    // 1. Remove local profile configuration files
     NSString *dir = [self storageDirectoryPath];
     NSArray *files = [fm contentsOfDirectoryAtPath:dir error:nil];
     for (NSString *file in files) {
@@ -367,7 +421,6 @@ extern char **environ;
         }
     }
 
-    // 2. Clear URL cache, cookies, and temporary files in current sandbox
     [[NSURLCache sharedURLCache] removeAllCachedResponses];
     cleanedItems++;
 
@@ -384,7 +437,6 @@ extern char **environ;
     }
     cleanedItems++;
 
-    // 3. Clear app-scoped Keychain entries
     NSArray *secClasses = @[
         (__bridge id)kSecClassGenericPassword,
         (__bridge id)kSecClassInternetPassword,
@@ -398,7 +450,6 @@ extern char **environ;
     }
     cleanedItems++;
 
-    // 4. Clear Pasteboard
     [UIPasteboard generalPasteboard].string = @"";
     cleanedItems++;
 
