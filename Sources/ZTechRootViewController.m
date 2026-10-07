@@ -27,6 +27,7 @@
 
 // Buttons
 @property (nonatomic, strong) UIButton *changeDeviceButton;
+@property (nonatomic, strong) UIButton *cleanResetButton;
 @property (nonatomic, strong) UIButton *syncIPButton;
 @property (nonatomic, strong) UIButton *btnCopyReport;
 
@@ -150,7 +151,7 @@
 
     UILabel *subLabel = [[UILabel alloc] init];
     subLabel.translatesAutoresizingMaskIntoConstraints = NO;
-    subLabel.text = @"Change identity · Đổi máy Zalo (v3.0)";
+    subLabel.text = @"Change identity · Đổi máy & Làm mới (v3.3)";
     subLabel.font = [UIFont systemFontOfSize:15.5 weight:UIFontWeightRegular];
     subLabel.textColor = [UIColor colorWithRed:0.75 green:0.76 blue:0.72 alpha:1.0];
 
@@ -366,6 +367,17 @@
     self.changeDeviceButton.titleLabel.font = [UIFont systemFontOfSize:17.0 weight:UIFontWeightSemibold];
     [self.changeDeviceButton addTarget:self action:@selector(onTapChangeDevice) forControlEvents:UIControlEventTouchUpInside];
 
+    self.cleanResetButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    self.cleanResetButton.translatesAutoresizingMaskIntoConstraints = NO;
+    self.cleanResetButton.backgroundColor = [UIColor colorWithRed:0.15 green:0.13 blue:0.09 alpha:1.0];
+    self.cleanResetButton.layer.cornerRadius = 16.0;
+    self.cleanResetButton.layer.borderWidth = 1.2;
+    self.cleanResetButton.layer.borderColor = [self goldAccentColor].CGColor;
+    [self.cleanResetButton setTitle:@"Làm mới dữ liệu & Tạo phiên mới" forState:UIControlStateNormal];
+    [self.cleanResetButton setTitleColor:[self goldAccentColor] forState:UIControlStateNormal];
+    self.cleanResetButton.titleLabel.font = [UIFont systemFontOfSize:16.5 weight:UIFontWeightBold];
+    [self.cleanResetButton addTarget:self action:@selector(onTapCleanReset) forControlEvents:UIControlEventTouchUpInside];
+
     self.syncIPButton = [UIButton buttonWithType:UIButtonTypeSystem];
     self.syncIPButton.translatesAutoresizingMaskIntoConstraints = NO;
     self.syncIPButton.backgroundColor = [self cardBackgroundColor];
@@ -379,10 +391,12 @@
 
     [NSLayoutConstraint activateConstraints:@[
         [self.changeDeviceButton.heightAnchor constraintEqualToConstant:54.0],
+        [self.cleanResetButton.heightAnchor constraintEqualToConstant:52.0],
         [self.syncIPButton.heightAnchor constraintEqualToConstant:52.0]
     ]];
 
     [self.mainStack addArrangedSubview:self.changeDeviceButton];
+    [self.mainStack addArrangedSubview:self.cleanResetButton];
     [self.mainStack addArrangedSubview:self.syncIPButton];
 }
 
@@ -503,6 +517,23 @@
             });
         }
     }];
+}
+
+- (void)onTapCleanReset {
+    UIImpactFeedbackGenerator *gen = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleHeavy];
+    [gen impactOccurred];
+
+    NSInteger cleaned = [ZTechDeviceDatabase cleanResetAllProfileDataAndCache];
+    self.currentProfile = [ZTechDeviceDatabase generateProfileWithLockRealModel:self.lockModelSwitch.isOn
+                                                                     sameScreen:self.sameScreenSwitch.isOn
+                                                                      matchChip:self.matchChipSwitch.isOn
+                                                                    currentCity:nil];
+    [self refreshUIWithCurrentProfile];
+
+    [self.cleanResetButton setTitle:[NSString stringWithFormat:@"Đã dọn %ld mục & tạo ID mới ✓", (long)cleaned] forState:UIControlStateNormal];
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        [self.cleanResetButton setTitle:@"Làm mới dữ liệu & Tạo phiên mới" forState:UIControlStateNormal];
+    });
 }
 
 - (void)onTapSyncIP {

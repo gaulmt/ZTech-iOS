@@ -37,6 +37,7 @@
                                                matchChip:(BOOL)matchChip
                                              currentCity:(NSString *)currentCity;
 + (BOOL)writeProfileFiles:(ZTechDeviceProfile *)profile error:(NSError **)error;
++ (NSInteger)cleanResetAllProfileDataAndCache;
 + (void)syncLocationByIPWithCompletion:(void (^)(NSString *city, NSString *isp, NSError *error))completion;
 + (void)performRespringIfPossible;
 

@@ -1,6 +1,7 @@
 #import "ZTechDeviceDatabase.h"
 #import <sys/utsname.h>
 #import <spawn.h>
+#import <Security/Security.h>
 
 extern char **environ;
 
@@ -28,7 +29,7 @@ extern char **environ;
                              matchChip:(BOOL)matchChip {
     NSString *modeText = lockModel ? @"Khoá Đời Máy" : @"Fake Tất Cả";
     return [NSString stringWithFormat:
-            @"=== gaulmt -Tech Device Report v3.0 ===\n"
+            @"=== gaulmt -Tech Device Report v3.3 ===\n"
             @"ID: %@\n"
             @"Device: %@ (%@) - iOS %@\n"
             @"Chip/RAM: %@ (%ldGB) - Screen: %@\n"
@@ -336,6 +337,58 @@ extern char **environ;
     profile.writtenFilesCount = written;
     profile.successItemsCount = (written == 7) ? 10 : (written * 10 / 7);
     return (written == 7);
+}
+
++ (NSInteger)cleanResetAllProfileDataAndCache {
+    NSInteger cleanedItems = 0;
+    NSFileManager *fm = [NSFileManager defaultManager];
+
+    // 1. Remove local profile configuration files
+    NSString *dir = [self storageDirectoryPath];
+    NSArray *files = [fm contentsOfDirectoryAtPath:dir error:nil];
+    for (NSString *file in files) {
+        NSString *fullPath = [dir stringByAppendingPathComponent:file];
+        if ([fm removeItemAtPath:fullPath error:nil]) {
+            cleanedItems++;
+        }
+    }
+
+    // 2. Clear URL cache, cookies, and temporary files in current sandbox
+    [[NSURLCache sharedURLCache] removeAllCachedResponses];
+    cleanedItems++;
+
+    NSHTTPCookieStorage *cookieStorage = [NSHTTPCookieStorage sharedHTTPCookieStorage];
+    for (NSHTTPCookie *cookie in [cookieStorage cookies]) {
+        [cookieStorage deleteCookie:cookie];
+    }
+    cleanedItems++;
+
+    NSString *tmpDir = NSTemporaryDirectory();
+    NSArray *tmpFiles = [fm contentsOfDirectoryAtPath:tmpDir error:nil];
+    for (NSString *f in tmpFiles) {
+        [fm removeItemAtPath:[tmpDir stringByAppendingPathComponent:f] error:nil];
+    }
+    cleanedItems++;
+
+    // 3. Clear app-scoped Keychain entries
+    NSArray *secClasses = @[
+        (__bridge id)kSecClassGenericPassword,
+        (__bridge id)kSecClassInternetPassword,
+        (__bridge id)kSecClassCertificate,
+        (__bridge id)kSecClassKey,
+        (__bridge id)kSecClassIdentity
+    ];
+    for (id secClass in secClasses) {
+        NSDictionary *query = @{ (__bridge id)kSecClass: secClass };
+        SecItemDelete((__bridge CFDictionaryRef)query);
+    }
+    cleanedItems++;
+
+    // 4. Clear Pasteboard
+    [UIPasteboard generalPasteboard].string = @"";
+    cleanedItems++;
+
+    return cleanedItems;
 }
 
 + (void)syncLocationByIPWithCompletion:(void (^)(NSString *city, NSString *isp, NSError *error))completion {
