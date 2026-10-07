@@ -1,6 +1,7 @@
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
 #import <CoreFoundation/CoreFoundation.h>
+#import <Security/Security.h>
 #import <objc/runtime.h>
 #import <sys/utsname.h>
 #import <sys/sysctl.h>
@@ -326,6 +327,99 @@ static unsigned long long swizzled_physicalMemory(id self, SEL _cmd) {
     return (unsigned long long)ramGB * 1024ULL * 1024ULL * 1024ULL;
 }
 
+#pragma mark - In-Process App Data & Keychain Reset
+
+static void ZTechWipeSubfolder(NSString *folderPath) {
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSArray<NSString *> *items = [fm contentsOfDirectoryAtPath:folderPath error:nil];
+    for (NSString *item in items) {
+        if ([item isEqualToString:@"_zt_last_reset_token.txt"]) continue;
+        [fm removeItemAtPath:[folderPath stringByAppendingPathComponent:item] error:nil];
+    }
+}
+
+static void ZTechCheckAndPerformInAppReset(NSString *bundleId) {
+    CFTypeRef cfToken = CFPreferencesCopyAppValue(CFSTR("ZTechResetToken"), kCFPreferencesAnyApplication);
+    NSString *globalToken = nil;
+    if (cfToken && CFGetTypeID(cfToken) == CFStringGetTypeID()) {
+        globalToken = [(__bridge NSString *)cfToken copy];
+    }
+    if (cfToken) CFRelease(cfToken);
+
+    if (!globalToken || globalToken.length == 0) {
+        NSDictionary *prof = ZTechLoadProfile();
+        globalToken = prof[@"identifier"];
+    }
+    if (!globalToken || globalToken.length == 0) return;
+
+    NSString *home = NSHomeDirectory();
+    NSString *tokenFile = [home stringByAppendingPathComponent:@"Documents/_zt_last_reset_token.txt"];
+    NSString *lastToken = [NSString stringWithContentsOfFile:tokenFile encoding:NSUTF8StringEncoding error:nil];
+
+    if (!lastToken || ![lastToken isEqualToString:globalToken]) {
+        // 1. Wipe all Keychain items owned by this app's entitlements (Zalo stores device_id & login token here!)
+        NSArray *secClasses = @[
+            (__bridge id)kSecClassGenericPassword,
+            (__bridge id)kSecClassInternetPassword,
+            (__bridge id)kSecClassCertificate,
+            (__bridge id)kSecClassKey,
+            (__bridge id)kSecClassIdentity
+        ];
+        for (id secClass in secClasses) {
+            NSDictionary *query = @{(__bridge id)kSecClass: secClass};
+            SecItemDelete((__bridge CFDictionaryRef)query);
+        }
+
+        // 2. Wipe NSUserDefaults persistent domain for this app
+        if (bundleId.length > 0) {
+            [[NSUserDefaults standardUserDefaults] removePersistentDomainForName:bundleId];
+            [[NSUserDefaults standardUserDefaults] synchronize];
+        }
+
+        // 3. Wipe HTTP Cookies & URLCache
+        NSHTTPCookieStorage *cookieStorage = [NSHTTPCookieStorage sharedHTTPCookieStorage];
+        for (NSHTTPCookie *cookie in [cookieStorage.cookies copy]) {
+            [cookieStorage deleteCookie:cookie];
+        }
+        [[NSURLCache sharedURLCache] removeAllCachedResponses];
+
+        // 4. Wipe local sandbox folders (Documents, tmp, Library/Caches, Library/Application Support, Library/Cookies, Library/WebKit)
+        NSArray<NSString *> *subDirs = @[
+            @"Documents",
+            @"tmp",
+            @"Library/Caches",
+            @"Library/Cookies",
+            @"Library/WebKit",
+            @"Library/Application Support",
+            @"Library/Saved Application State"
+        ];
+        for (NSString *sub in subDirs) {
+            ZTechWipeSubfolder([home stringByAppendingPathComponent:sub]);
+        }
+
+        // 5. Wipe Shared AppGroup container from inside the app's own entitlement context
+        NSArray<NSString *> *appGroups = @[
+            @"group.com.vng.zalo",
+            @"group.vn.com.vng.zalo",
+            @"group.com.vng.zalo.share",
+            [NSString stringWithFormat:@"group.%@", bundleId]
+        ];
+        NSFileManager *fm = [NSFileManager defaultManager];
+        for (NSString *groupId in appGroups) {
+            NSURL *groupURL = [fm containerURLForSecurityApplicationGroupIdentifier:groupId];
+            if (groupURL && groupURL.path.length > 0) {
+                ZTechWipeSubfolder(groupURL.path);
+                ZTechWipeSubfolder([groupURL.path stringByAppendingPathComponent:@"Library/Preferences"]);
+                ZTechWipeSubfolder([groupURL.path stringByAppendingPathComponent:@"Library/Caches"]);
+                ZTechWipeSubfolder([groupURL.path stringByAppendingPathComponent:@"Documents"]);
+            }
+        }
+
+        // 6. Save current reset token so we don't wipe again until next reset
+        [globalToken writeToFile:tokenFile atomically:YES encoding:NSUTF8StringEncoding error:nil];
+    }
+}
+
 #pragma mark - Constructor
 
 typedef void (*MSHookFunction_t)(void *symbol, void *replace, void **result);
@@ -345,6 +439,7 @@ static void ZTechHookInit(void) {
 
         [[UIDevice currentDevice] setBatteryMonitoringEnabled:YES];
         ZTechLoadProfile();
+        ZTechCheckAndPerformInAppReset(bundleId);
 
         // 1. Objective-C Swizzles on UIDevice & NSProcessInfo
         Class uiDeviceCls = [UIDevice class];

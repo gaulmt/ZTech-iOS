@@ -408,10 +408,73 @@ extern char **environ;
     return (written == 7);
 }
 
++ (NSInteger)cleanDirectoryContents:(NSString *)dirPath fileManager:(NSFileManager *)fm {
+    NSInteger count = 0;
+    NSArray *items = [fm contentsOfDirectoryAtPath:dirPath error:nil];
+    for (NSString *item in items) {
+        if ([item isEqualToString:@".com.apple.mobile_container_manager.metadata.plist"]) continue;
+        NSString *fullPath = [dirPath stringByAppendingPathComponent:item];
+        if ([fm removeItemAtPath:fullPath error:nil]) {
+            count++;
+        }
+    }
+    return count;
+}
+
 + (NSInteger)cleanResetAllProfileDataAndCache {
     NSInteger cleanedItems = 0;
     NSFileManager *fm = [NSFileManager defaultManager];
 
+    // 1. Terminate running target processes first so files are not locked
+    NSArray<NSString *> *killBins = @[@"/var/jb/usr/bin/killall", @"/usr/bin/killall"];
+    for (NSString *bin in killBins) {
+        if ([fm isExecutableFileAtPath:bin]) {
+            pid_t pid1, pid2;
+            const char *args1[] = { [bin UTF8String], "-9", "Zalo", NULL };
+            posix_spawn(&pid1, [bin UTF8String], NULL, NULL, (char *const *)args1, environ);
+            const char *args2[] = { [bin UTF8String], "-9", "AIDA64", NULL };
+            posix_spawn(&pid2, [bin UTF8String], NULL, NULL, (char *const *)args2, environ);
+            break;
+        }
+    }
+
+    // 2. Scan and clean matching Data Containers (/var/mobile/Containers/Data/Application)
+    //    and Shared AppGroups (/var/mobile/Containers/Shared/AppGroup)
+    NSArray<NSString *> *containerRoots = @[
+        @"/var/mobile/Containers/Data/Application",
+        @"/private/var/mobile/Containers/Data/Application",
+        @"/var/mobile/Containers/Shared/AppGroup",
+        @"/private/var/mobile/Containers/Shared/AppGroup"
+    ];
+
+    for (NSString *rootPath in containerRoots) {
+        NSArray<NSString *> *uuidFolders = [fm contentsOfDirectoryAtPath:rootPath error:nil];
+        for (NSString *uuid in uuidFolders) {
+            NSString *containerPath = [rootPath stringByAppendingPathComponent:uuid];
+            NSString *metaPath = [containerPath stringByAppendingPathComponent:@".com.apple.mobile_container_manager.metadata.plist"];
+            NSDictionary *meta = [NSDictionary dictionaryWithContentsOfFile:metaPath];
+            NSString *bundleId = [meta[@"MCMMetadataIdentifier"] lowercaseString];
+            if ([bundleId containsString:@"zalo"] || [bundleId containsString:@"vng"]) {
+                NSArray<NSString *> *subDirs = @[@"Documents", @"tmp", @"Library/Caches", @"Library/Cookies", @"Library/Preferences", @"Library/WebKit", @"Library/Application Support"];
+                for (NSString *sub in subDirs) {
+                    NSString *targetSub = [containerPath stringByAppendingPathComponent:sub];
+                    if ([fm fileExistsAtPath:targetSub]) {
+                        cleanedItems += [self cleanDirectoryContents:targetSub fileManager:fm];
+                    }
+                }
+                cleanedItems += [self cleanDirectoryContents:containerPath fileManager:fm];
+                // Recreate standard empty container subdirectories
+                for (NSString *sub in @[@"Documents", @"Library", @"Library/Caches", @"Library/Preferences", @"tmp"]) {
+                    [fm createDirectoryAtPath:[containerPath stringByAppendingPathComponent:sub]
+                  withIntermediateDirectories:YES
+                                   attributes:@{NSFilePosixPermissions: @(0755)}
+                                        error:nil];
+                }
+            }
+        }
+    }
+
+    // 3. Remove local profile configuration files
     NSString *dir = [self storageDirectoryPath];
     NSArray *files = [fm contentsOfDirectoryAtPath:dir error:nil];
     for (NSString *file in files) {
@@ -421,35 +484,20 @@ extern char **environ;
         }
     }
 
+    // 4. Record new reset token in Global CFPreferences so ZTechHook.dylib wipes in-app Keychain on next launch
+    NSString *resetToken = [[NSUUID UUID] UUIDString];
+    CFPreferencesSetValue(CFSTR("ZTechResetToken"),
+                          (__bridge CFPropertyListRef)resetToken,
+                          kCFPreferencesAnyApplication,
+                          kCFPreferencesCurrentUser,
+                          kCFPreferencesAnyHost);
+    CFPreferencesSynchronize(kCFPreferencesAnyApplication,
+                             kCFPreferencesCurrentUser,
+                             kCFPreferencesAnyHost);
+    cleanedItems++;
+
+    // 5. Clear pasteboard & local caches
     [[NSURLCache sharedURLCache] removeAllCachedResponses];
-    cleanedItems++;
-
-    NSHTTPCookieStorage *cookieStorage = [NSHTTPCookieStorage sharedHTTPCookieStorage];
-    for (NSHTTPCookie *cookie in [cookieStorage cookies]) {
-        [cookieStorage deleteCookie:cookie];
-    }
-    cleanedItems++;
-
-    NSString *tmpDir = NSTemporaryDirectory();
-    NSArray *tmpFiles = [fm contentsOfDirectoryAtPath:tmpDir error:nil];
-    for (NSString *f in tmpFiles) {
-        [fm removeItemAtPath:[tmpDir stringByAppendingPathComponent:f] error:nil];
-    }
-    cleanedItems++;
-
-    NSArray *secClasses = @[
-        (__bridge id)kSecClassGenericPassword,
-        (__bridge id)kSecClassInternetPassword,
-        (__bridge id)kSecClassCertificate,
-        (__bridge id)kSecClassKey,
-        (__bridge id)kSecClassIdentity
-    ];
-    for (id secClass in secClasses) {
-        NSDictionary *query = @{ (__bridge id)kSecClass: secClass };
-        SecItemDelete((__bridge CFDictionaryRef)query);
-    }
-    cleanedItems++;
-
     [UIPasteboard generalPasteboard].string = @"";
     cleanedItems++;
 

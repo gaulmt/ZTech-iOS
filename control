@@ -1,8 +1,8 @@
 Package: com.ztech.devicechanger
 Name: gaulmt -Tech
-Version: 4.1.0
+Version: 4.2.0
 Architecture: iphoneos-arm
-Description: gaulmt -Tech v4.1 - App + Tweak Hook (iOS 16+ & iPhone 8+ tro len, Fishhook + sysctl + MGCopyAnswer)
+Description: gaulmt -Tech v4.2 - App + Tweak Hook + Lam moi Container truc tiep (iOS 16+ & iPhone 8+ tro len)
 Maintainer: gaulmt -Tech
 Author: gaulmt -Tech
 Section: Utilities
