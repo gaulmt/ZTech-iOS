@@ -165,9 +165,13 @@ extern char **environ;
 }
 
 + (nullable NSString *)findZaloDataContainerPath {
+    static NSString *sCachedContainer = nil;
     NSFileManager *fm = [NSFileManager defaultManager];
+    if (sCachedContainer && [fm fileExistsAtPath:sCachedContainer]) {
+        return sCachedContainer;
+    }
 
-    // Layer 1: Query LaunchServices (LSApplicationProxy & LSApplicationWorkspace)
+    // Layer 1: Direct LSApplicationProxy lookup by bundle ID (fast)
     @try {
         Class proxyCls = NSClassFromString(@"LSApplicationProxy");
         if (proxyCls) {
@@ -179,12 +183,33 @@ extern char **environ;
                     if (proxy && [proxy respondsToSelector:sel_registerName("dataContainerURL")]) {
                         NSURL *url = ((NSURL *(*)(id, SEL))objc_msgSend)(proxy, sel_registerName("dataContainerURL"));
                         if ([url isKindOfClass:[NSURL class]] && url.path.length > 0 && [fm fileExistsAtPath:url.path]) {
-                            return url.path;
+                            sCachedContainer = url.path;
+                            return sCachedContainer;
                         }
                     }
                 }
             }
         }
+    } @catch (NSException *e) {}
+
+    // Layer 2: Fast scan of Data/Application containers via marker, metadata.plist, and mobile-owned subdirectories
+    NSArray<NSString *> *roots = @[
+        @"/var/mobile/Containers/Data/Application",
+        @"/private/var/mobile/Containers/Data/Application"
+    ];
+    for (NSString *root in roots) {
+        NSArray<NSString *> *uuids = [fm contentsOfDirectoryAtPath:root error:nil];
+        for (NSString *uuid in uuids) {
+            NSString *container = [root stringByAppendingPathComponent:uuid];
+            if ([self isContainerDirectoryForZalo:container fileManager:fm]) {
+                sCachedContainer = container;
+                return sCachedContainer;
+            }
+        }
+    }
+
+    // Layer 3: Fallback to LSApplicationWorkspace allInstalledApplications
+    @try {
         Class wsCls = NSClassFromString(@"LSApplicationWorkspace");
         if (wsCls) {
             id ws = ((id (*)(id, SEL))objc_msgSend)(wsCls, sel_registerName("defaultWorkspace"));
@@ -199,7 +224,8 @@ extern char **environ;
                         if ([proxy respondsToSelector:sel_registerName("dataContainerURL")]) {
                             NSURL *url = ((NSURL *(*)(id, SEL))objc_msgSend)(proxy, sel_registerName("dataContainerURL"));
                             if ([url isKindOfClass:[NSURL class]] && url.path.length > 0 && [fm fileExistsAtPath:url.path]) {
-                                return url.path;
+                                sCachedContainer = url.path;
+                                return sCachedContainer;
                             }
                         }
                     }
@@ -208,20 +234,6 @@ extern char **environ;
         }
     } @catch (NSException *e) {}
 
-    // Layer 2: Scan Data/Application containers via marker, metadata.plist, and mobile-owned subdirectories
-    NSArray<NSString *> *roots = @[
-        @"/var/mobile/Containers/Data/Application",
-        @"/private/var/mobile/Containers/Data/Application"
-    ];
-    for (NSString *root in roots) {
-        NSArray<NSString *> *uuids = [fm contentsOfDirectoryAtPath:root error:nil];
-        for (NSString *uuid in uuids) {
-            NSString *container = [root stringByAppendingPathComponent:uuid];
-            if ([self isContainerDirectoryForZalo:container fileManager:fm]) {
-                return container;
-            }
-        }
-    }
     return nil;
 }
 

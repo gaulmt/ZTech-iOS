@@ -1,8 +1,8 @@
 Package: com.ztech.devicechanger
 Name: gaulmt -Tech
-Version: 5.0.0
+Version: 5.0.1
 Architecture: iphoneos-arm
-Description: gaulmt -Tech v5.0 - Fix Luu Acc Zalo Vao Kho + Hook Chained Fixups iPhone 16 Pro Max + Phim That Paste He Thong + Enterprise Cloud
+Description: gaulmt -Tech v5.0.1 - Fix Treo/Crash Khi Mo Zalo (Lock-Free Hook) + Luu Acc Zalo Vao Kho + Fake iPhone 16 Pro Max + Phim That Paste He Thong
 Maintainer: gaulmt -Tech
 Author: gaulmt -Tech
 Section: Utilities
