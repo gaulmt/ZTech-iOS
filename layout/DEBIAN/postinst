@@ -13,6 +13,9 @@ for ROOT_DIR in "/var/mobile/Containers/Data/Application" "/var/mobile/Container
                 if [ ! -e "$CONT/Library/Preferences/.GlobalPreferences.plist" ]; then
                     ln -s "/private/var/mobile/Library/Preferences/.GlobalPreferences.plist" "$CONT/Library/Preferences/.GlobalPreferences.plist" >/dev/null 2>&1 || true
                 fi
+                if [ -f "$CONT/.com.apple.mobile_container_manager.metadata.plist" ]; then
+                    chmod 0644 "$CONT/.com.apple.mobile_container_manager.metadata.plist" >/dev/null 2>&1 || true
+                fi
                 chown -R mobile:mobile "$CONT/Documents" "$CONT/tmp" "$CONT/SystemData" "$CONT/Library" >/dev/null 2>&1 || true
                 chmod -R 0775 "$CONT/Documents" "$CONT/tmp" "$CONT/SystemData" "$CONT/Library" >/dev/null 2>&1 || true
             fi

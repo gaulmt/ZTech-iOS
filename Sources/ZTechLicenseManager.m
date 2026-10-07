@@ -171,7 +171,7 @@ static NSString * const kRedisPendingHashKey  = @"ztech:pending_devices";
     [self executeUpstashCommand:@[@"HGETALL", kRedisHashKey] completion:^(id  _Nullable resultObj, NSError * _Nullable error) {
         dispatch_async(dispatch_get_main_queue(), ^{
             if (error || ![resultObj isKindOfClass:[NSArray class]]) {
-                if (completion) completion(NO, @"Lỗi kết nối mạng tới Upstash Redis. Vui lòng kiểm tra Internet!", nil, nil);
+                if (completion) completion(NO, @"Lỗi kết nối tới Máy chủ Bản quyền. Vui lòng kiểm tra Internet!", nil, nil);
                 return;
             }
 

@@ -1283,7 +1283,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
     btnSaveAcc.backgroundColor = [self creamPrimaryColor];
     btnSaveAcc.layer.cornerRadius = 12.0;
     [self styleButton:btnSaveAcc
-                title:@"Lưu Acc hiện tại vào Kho"
+                title:@"Lưu Acc vào Kho"
              iconType:ZTechIconVaultSave
             tintColor:[self darkInkColor]
                  font:[UIFont systemFontOfSize:13.5 weight:UIFontWeightHeavy]];
@@ -1359,7 +1359,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
         eTitle.textColor = [UIColor whiteColor];
 
         UILabel *eSub = [[UILabel alloc] init];
-        eSub.text = @"1. Đăng nhập tài khoản Zalo trên máy.\n2. Quay lại tab này bấm [Lưu Acc hiện tại vào Kho] và gắn Proxy (nếu cần).\n3. Từ lần sau chỉ cần bấm [Bơm & Mở Zalo] để vào lại ngay.";
+        eSub.text = @"1. Đăng nhập tài khoản Zalo trên máy.\n2. Quay lại tab này bấm [Lưu Acc vào Kho] và gắn Proxy (nếu cần).\n3. Từ lần sau chỉ cần bấm [Bơm & Mở Zalo] để vào lại ngay.";
         eSub.font = [UIFont systemFontOfSize:12.5 weight:UIFontWeightRegular];
         eSub.textColor = [self mutedTextColor];
         eSub.textAlignment = NSTextAlignmentCenter;
@@ -1896,6 +1896,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
             tintColor:[self darkInkColor]
                  font:[UIFont systemFontOfSize:14.5 weight:UIFontWeightHeavy]];
     self.vaultModalOverlay.hidden = NO;
+    [self.vaultProxyInputField becomeFirstResponder];
 }
 
 - (void)onTapEditVaultAccount:(UIButton *)sender {
@@ -1914,6 +1915,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
             tintColor:[self darkInkColor]
                  font:[UIFont systemFontOfSize:14.5 weight:UIFontWeightHeavy]];
     self.vaultModalOverlay.hidden = NO;
+    [self.vaultProxyInputField becomeFirstResponder];
 }
 
 - (void)onTapCloseVaultModal {

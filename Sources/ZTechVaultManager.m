@@ -121,8 +121,94 @@ extern char **environ;
     }
 }
 
++ (BOOL)isContainerDirectoryForZalo:(NSString *)containerPath fileManager:(NSFileManager *)fm {
+    if (!containerPath || containerPath.length == 0) return NO;
+
+    // 1. Check ZTechHook marker file inside Documents
+    NSString *markerPath = [containerPath stringByAppendingPathComponent:@"Documents/_zt_zalo_marker.txt"];
+    if ([fm fileExistsAtPath:markerPath]) {
+        return YES;
+    }
+
+    // 2. Check metadata plist if readable
+    NSString *metaPath = [containerPath stringByAppendingPathComponent:@".com.apple.mobile_container_manager.metadata.plist"];
+    NSDictionary *meta = [NSDictionary dictionaryWithContentsOfFile:metaPath];
+    if (meta) {
+        NSString *bundleId = [meta[@"MCMMetadataIdentifier"] lowercaseString];
+        if ([bundleId containsString:@"zalo"] || [bundleId containsString:@"vng"]) {
+            return YES;
+        }
+    }
+
+    // 3. Scan mobile-owned subdirectories (Preferences, Caches, Application Support, Documents)
+    NSArray<NSString *> *subDirsToCheck = @[
+        @"Library/Preferences",
+        @"Library/Caches",
+        @"Library/Application Support",
+        @"Documents"
+    ];
+    for (NSString *sub in subDirsToCheck) {
+        NSString *dir = [containerPath stringByAppendingPathComponent:sub];
+        NSArray<NSString *> *items = [fm contentsOfDirectoryAtPath:dir error:nil];
+        for (NSString *item in items) {
+            NSString *lower = [item lowercaseString];
+            if ([lower containsString:@"vn.com.vng.zalo"] ||
+                [lower containsString:@"com.vng.zalo"] ||
+                [lower hasPrefix:@"zalo"] ||
+                [lower containsString:@".zalo"] ||
+                [lower containsString:@"zalo."]) {
+                return YES;
+            }
+        }
+    }
+    return NO;
+}
+
 + (nullable NSString *)findZaloDataContainerPath {
     NSFileManager *fm = [NSFileManager defaultManager];
+
+    // Layer 1: Query LaunchServices (LSApplicationProxy & LSApplicationWorkspace)
+    @try {
+        Class proxyCls = NSClassFromString(@"LSApplicationProxy");
+        if (proxyCls) {
+            SEL selProxy = sel_registerName("applicationProxyForIdentifier:");
+            NSArray<NSString *> *candidateIds = @[@"vn.com.vng.zalo", @"com.vng.zalo"];
+            for (NSString *bid in candidateIds) {
+                if ([proxyCls respondsToSelector:selProxy]) {
+                    id proxy = ((id (*)(id, SEL, NSString *))objc_msgSend)(proxyCls, selProxy, bid);
+                    if (proxy && [proxy respondsToSelector:sel_registerName("dataContainerURL")]) {
+                        NSURL *url = ((NSURL *(*)(id, SEL))objc_msgSend)(proxy, sel_registerName("dataContainerURL"));
+                        if ([url isKindOfClass:[NSURL class]] && url.path.length > 0 && [fm fileExistsAtPath:url.path]) {
+                            return url.path;
+                        }
+                    }
+                }
+            }
+        }
+        Class wsCls = NSClassFromString(@"LSApplicationWorkspace");
+        if (wsCls) {
+            id ws = ((id (*)(id, SEL))objc_msgSend)(wsCls, sel_registerName("defaultWorkspace"));
+            if (ws && [ws respondsToSelector:sel_registerName("allInstalledApplications")]) {
+                NSArray *apps = ((NSArray *(*)(id, SEL))objc_msgSend)(ws, sel_registerName("allInstalledApplications"));
+                for (id proxy in apps) {
+                    NSString *appId = nil;
+                    if ([proxy respondsToSelector:sel_registerName("applicationIdentifier")]) {
+                        appId = [((NSString *(*)(id, SEL))objc_msgSend)(proxy, sel_registerName("applicationIdentifier")) lowercaseString];
+                    }
+                    if ([appId containsString:@"zalo"] || [appId containsString:@"vng"]) {
+                        if ([proxy respondsToSelector:sel_registerName("dataContainerURL")]) {
+                            NSURL *url = ((NSURL *(*)(id, SEL))objc_msgSend)(proxy, sel_registerName("dataContainerURL"));
+                            if ([url isKindOfClass:[NSURL class]] && url.path.length > 0 && [fm fileExistsAtPath:url.path]) {
+                                return url.path;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    } @catch (NSException *e) {}
+
+    // Layer 2: Scan Data/Application containers via marker, metadata.plist, and mobile-owned subdirectories
     NSArray<NSString *> *roots = @[
         @"/var/mobile/Containers/Data/Application",
         @"/private/var/mobile/Containers/Data/Application"
@@ -131,10 +217,7 @@ extern char **environ;
         NSArray<NSString *> *uuids = [fm contentsOfDirectoryAtPath:root error:nil];
         for (NSString *uuid in uuids) {
             NSString *container = [root stringByAppendingPathComponent:uuid];
-            NSString *metaPath = [container stringByAppendingPathComponent:@".com.apple.mobile_container_manager.metadata.plist"];
-            NSDictionary *meta = [NSDictionary dictionaryWithContentsOfFile:metaPath];
-            NSString *bundleId = [meta[@"MCMMetadataIdentifier"] lowercaseString];
-            if ([bundleId isEqualToString:@"vn.com.vng.zalo"] || [bundleId containsString:@"zalo"]) {
+            if ([self isContainerDirectoryForZalo:container fileManager:fm]) {
                 return container;
             }
         }
@@ -145,6 +228,27 @@ extern char **environ;
 + (NSDictionary<NSString *, NSString *> *)findZaloAppGroupContainers {
     NSFileManager *fm = [NSFileManager defaultManager];
     NSMutableDictionary<NSString *, NSString *> *groups = [NSMutableDictionary dictionary];
+
+    // Layer 1: Query LaunchServices groupContainerURLs
+    @try {
+        Class proxyCls = NSClassFromString(@"LSApplicationProxy");
+        if (proxyCls && [proxyCls respondsToSelector:sel_registerName("applicationProxyForIdentifier:")]) {
+            id proxy = ((id (*)(id, SEL, NSString *))objc_msgSend)(proxyCls, sel_registerName("applicationProxyForIdentifier:"), @"vn.com.vng.zalo");
+            if (proxy && [proxy respondsToSelector:sel_registerName("groupContainerURLs")]) {
+                NSDictionary *gUrls = ((NSDictionary *(*)(id, SEL))objc_msgSend)(proxy, sel_registerName("groupContainerURLs"));
+                if ([gUrls isKindOfClass:[NSDictionary class]]) {
+                    for (NSString *gid in gUrls) {
+                        NSURL *u = gUrls[gid];
+                        if ([u isKindOfClass:[NSURL class]] && u.path.length > 0 && [fm fileExistsAtPath:u.path]) {
+                            groups[[gid lowercaseString]] = u.path;
+                        }
+                    }
+                }
+            }
+        }
+    } @catch (NSException *e) {}
+
+    // Layer 2: Scan Shared/AppGroup directories
     NSArray<NSString *> *roots = @[
         @"/var/mobile/Containers/Shared/AppGroup",
         @"/private/var/mobile/Containers/Shared/AppGroup"
@@ -158,6 +262,9 @@ extern char **environ;
             NSString *groupId = [meta[@"MCMMetadataIdentifier"] lowercaseString];
             if ([groupId containsString:@"zalo"] || [groupId containsString:@"vng"]) {
                 groups[groupId] = container;
+            } else if ([self isContainerDirectoryForZalo:container fileManager:fm]) {
+                NSString *fallbackKey = [NSString stringWithFormat:@"group.vn.com.vng.zalo.%@", uuid];
+                groups[fallbackKey] = container;
             }
         }
     }
@@ -404,12 +511,22 @@ extern char **environ;
         }
     }
 
-    // 6. Write restore trigger so ZTechHook.dylib imports backed-up Keychain & NSUserDefaults inside Zalo on launch
+    // 6. Write restore trigger & active profile directly into Zalo Documents so ZTechHook.dylib imports them inside sandbox
     NSString *docsDir = [zaloContainer stringByAppendingPathComponent:@"Documents"];
     NSString *triggerFile = [docsDir stringByAppendingPathComponent:@"_zt_restore_trigger.txt"];
     [account.accountId writeToFile:triggerFile atomically:YES encoding:NSUTF8StringEncoding error:nil];
     chown([triggerFile UTF8String], 501, 501);
     chmod([triggerFile UTF8String], 0666);
+
+    NSString *activeProfFile = [docsDir stringByAppendingPathComponent:@"_zt_active_profile.plist"];
+    [[restoredProfile toDictionary] writeToFile:activeProfFile atomically:YES];
+    chown([activeProfFile UTF8String], 501, 501);
+    chmod([activeProfFile UTF8String], 0666);
+
+    NSString *markerFile = [docsDir stringByAppendingPathComponent:@"_zt_zalo_marker.txt"];
+    [@"vn.com.vng.zalo" writeToFile:markerFile atomically:YES encoding:NSUTF8StringEncoding error:nil];
+    chown([markerFile UTF8String], 501, 501);
+    chmod([markerFile UTF8String], 0666);
 
     // Ensure .GlobalPreferences symlink exists
     NSString *globalPrefsLink = [zaloContainer stringByAppendingPathComponent:@"Library/Preferences/.GlobalPreferences.plist"];

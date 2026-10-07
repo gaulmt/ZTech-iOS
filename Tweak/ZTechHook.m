@@ -4,6 +4,7 @@
 #import <CFNetwork/CFNetwork.h>
 #import <Security/Security.h>
 #import <objc/runtime.h>
+#import <objc/message.h>
 #import <sys/utsname.h>
 #import <sys/sysctl.h>
 #import <sys/stat.h>
@@ -16,7 +17,7 @@
 #import <mach-o/nlist.h>
 #import <string.h>
 
-#pragma mark - Safe Embedded Fishhook (App Binary Only + vm_protect)
+#pragma mark - Chained-Fixups + Indirect Symbol GOT Rebinding (App Binary & Frameworks)
 
 #ifdef __LP64__
 typedef struct mach_header_64 mach_header_t;
@@ -39,6 +40,7 @@ typedef struct nlist nlist_t;
 struct zt_rebinding {
     const char *name;
     void *replacement;
+    void *raw_target;
     void **replaced;
 };
 
@@ -49,8 +51,9 @@ static void perform_rebinding_with_section(section_t *section,
                                            intptr_t slide,
                                            nlist_t *symtab,
                                            char *strtab,
-                                           uint32_t *indirect_symtab) {
-    uint32_t *indirect_symbol_indices = indirect_symtab + section->reserved1;
+                                           uint32_t *indirect_symtab,
+                                           uint32_t nindirectsyms) {
+    if (section->size < sizeof(void *)) return;
     void **indirect_symbol_bindings = (void **)((uintptr_t)slide + section->addr);
 
     vm_address_t page_start = (vm_address_t)indirect_symbol_bindings & ~(vm_address_t)(PAGE_SIZE - 1);
@@ -60,23 +63,46 @@ static void perform_rebinding_with_section(section_t *section,
         return;
     }
 
-    for (uint i = 0; i < section->size / sizeof(void *); i++) {
-        uint32_t symtab_index = indirect_symbol_indices[i];
-        if (symtab_index == INDIRECT_SYMBOL_ABS || symtab_index == INDIRECT_SYMBOL_LOCAL ||
-            symtab_index == (INDIRECT_SYMBOL_LOCAL | INDIRECT_SYMBOL_ABS)) {
-            continue;
-        }
-        uint32_t strtab_offset = symtab[symtab_index].n_un.n_strx;
-        char *symbol_name = strtab + strtab_offset;
-        if (symbol_name[0] == '\0') continue;
+    uint32_t *indirect_symbol_indices = (indirect_symtab && section->reserved1 < nindirectsyms)
+        ? (indirect_symtab + section->reserved1)
+        : NULL;
+
+    uint count = (uint)(section->size / sizeof(void *));
+    for (uint i = 0; i < count; i++) {
+        void *cur_ptr = indirect_symbol_bindings[i];
+        BOOL rebound = NO;
+
+        // 1. Direct pointer match for LC_DYLD_CHAINED_FIXUPS (__got / __const)
         for (size_t j = 0; j < gRebindingsCount; j++) {
-            if (strcmp(&symbol_name[1], gRebindings[j].name) == 0) {
-                if (gRebindings[j].replaced != NULL && *gRebindings[j].replaced == NULL &&
-                    indirect_symbol_bindings[i] != gRebindings[j].replacement) {
-                    *gRebindings[j].replaced = indirect_symbol_bindings[i];
-                }
+            if (gRebindings[j].raw_target != NULL &&
+                cur_ptr == gRebindings[j].raw_target &&
+                cur_ptr != gRebindings[j].replacement) {
                 indirect_symbol_bindings[i] = gRebindings[j].replacement;
+                rebound = YES;
                 break;
+            }
+        }
+        if (rebound) continue;
+
+        // 2. Classic LC_DYSYMTAB indirect symbol name match
+        if (indirect_symbol_indices && symtab && strtab && (section->reserved1 + i) < nindirectsyms) {
+            uint32_t symtab_index = indirect_symbol_indices[i];
+            if (symtab_index == INDIRECT_SYMBOL_ABS || symtab_index == INDIRECT_SYMBOL_LOCAL ||
+                symtab_index == (INDIRECT_SYMBOL_LOCAL | INDIRECT_SYMBOL_ABS)) {
+                continue;
+            }
+            uint32_t strtab_offset = symtab[symtab_index].n_un.n_strx;
+            char *symbol_name = strtab + strtab_offset;
+            if (symbol_name[0] == '\0') continue;
+            for (size_t j = 0; j < gRebindingsCount; j++) {
+                if (strcmp(&symbol_name[1], gRebindings[j].name) == 0) {
+                    if (gRebindings[j].replaced != NULL && *gRebindings[j].replaced == NULL &&
+                        indirect_symbol_bindings[i] != gRebindings[j].replacement) {
+                        *gRebindings[j].replaced = indirect_symbol_bindings[i];
+                    }
+                    indirect_symbol_bindings[i] = gRebindings[j].replacement;
+                    break;
+                }
             }
         }
     }
@@ -86,7 +112,8 @@ static void rebind_symbols_for_image(const struct mach_header *header, intptr_t 
     Dl_info info;
     if (dladdr(header, &info) == 0 || !info.dli_fname) return;
 
-    if (strstr(info.dli_fname, "/Application/") == NULL) {
+    if (strstr(info.dli_fname, "/Application/") == NULL &&
+        strstr(info.dli_fname, "Zalo") == NULL) {
         return;
     }
 
@@ -109,35 +136,48 @@ static void rebind_symbols_for_image(const struct mach_header *header, intptr_t 
         }
     }
 
-    if (!symtab_cmd || !dysymtab_cmd || !linkedit_segment || !dysymtab_cmd->nindirectsyms) return;
+    nlist_t *symtab = NULL;
+    char *strtab = NULL;
+    uint32_t *indirect_symtab = NULL;
+    uint32_t nindirectsyms = 0;
 
-    uintptr_t linkedit_base = (uintptr_t)slide + linkedit_segment->vmaddr - linkedit_segment->fileoff;
-    nlist_t *symtab = (nlist_t *)(linkedit_base + symtab_cmd->symoff);
-    char *strtab = (char *)(linkedit_base + symtab_cmd->stroff);
-    uint32_t *indirect_symtab = (uint32_t *)(linkedit_base + dysymtab_cmd->indirectsymoff);
+    if (symtab_cmd && dysymtab_cmd && linkedit_segment && dysymtab_cmd->nindirectsyms > 0) {
+        uintptr_t linkedit_base = (uintptr_t)slide + linkedit_segment->vmaddr - linkedit_segment->fileoff;
+        symtab = (nlist_t *)(linkedit_base + symtab_cmd->symoff);
+        strtab = (char *)(linkedit_base + symtab_cmd->stroff);
+        indirect_symtab = (uint32_t *)(linkedit_base + dysymtab_cmd->indirectsymoff);
+        nindirectsyms = dysymtab_cmd->nindirectsyms;
+    }
 
     cur = (uintptr_t)header + sizeof(mach_header_t);
     for (uint i = 0; i < header->ncmds; i++, cur += cur_seg_cmd->cmdsize) {
         cur_seg_cmd = (segment_command_t *)cur;
         if (cur_seg_cmd->cmd == LC_SEGMENT_ARCH_DEPENDENT) {
             if (strcmp(cur_seg_cmd->segname, SEG_DATA) != 0 &&
-                strcmp(cur_seg_cmd->segname, SEG_DATA_CONST) != 0) {
+                strcmp(cur_seg_cmd->segname, SEG_DATA_CONST) != 0 &&
+                strcmp(cur_seg_cmd->segname, "__AUTH_CONST") != 0 &&
+                strcmp(cur_seg_cmd->segname, "__AUTH") != 0) {
                 continue;
             }
             for (uint j = 0; j < cur_seg_cmd->nsects; j++) {
                 section_t *sect = (section_t *)(cur + sizeof(segment_command_t)) + j;
                 uint32_t flags = sect->flags & SECTION_TYPE;
-                if (flags == S_LAZY_SYMBOL_POINTERS || flags == S_NON_LAZY_SYMBOL_POINTERS) {
-                    perform_rebinding_with_section(sect, slide, symtab, strtab, indirect_symtab);
+                BOOL isGotNamed = (strncmp(sect->sectname, "__got", 5) == 0 ||
+                                   strncmp(sect->sectname, "__la_symbol_ptr", 15) == 0 ||
+                                   strncmp(sect->sectname, "__nl_symbol_ptr", 15) == 0 ||
+                                   strncmp(sect->sectname, "__auth_got", 10) == 0);
+                if (flags == S_LAZY_SYMBOL_POINTERS || flags == S_NON_LAZY_SYMBOL_POINTERS || isGotNamed) {
+                    perform_rebinding_with_section(sect, slide, symtab, strtab, indirect_symtab, nindirectsyms);
                 }
             }
         }
     }
 }
 
-#pragma mark - Profile Loader (Enforces Model >= iPhone 8 & iOS >= 16.0)
+#pragma mark - Profile Loader (Sandbox-First + Live Auto-Refresh)
 
 static NSDictionary *gCachedProfile = nil;
+static CFAbsoluteTime gLastProfileLoadTime = 0;
 
 static NSDictionary *ZTechNormalizeProfile(NSDictionary *raw) {
     NSMutableDictionary *m = [NSMutableDictionary dictionaryWithDictionary:raw ?: @{}];
@@ -145,6 +185,10 @@ static NSDictionary *ZTechNormalizeProfile(NSDictionary *raw) {
     if (!machine || machine.length == 0 ||
         [machine hasPrefix:@"iPhone9,"] || [machine hasPrefix:@"iPhone8,"] || [machine hasPrefix:@"iPhone7,"]) {
         m[@"machineId"] = @"iPhone17,2";
+        m[@"modelName"] = @"iPhone 16 Pro Max";
+    }
+    if (!m[@"modelName"] || [m[@"modelName"] length] == 0 ||
+        [m[@"modelName"] containsString:@"iPhone 7"] || [m[@"modelName"] containsString:@"iPhone 6"]) {
         m[@"modelName"] = @"iPhone 16 Pro Max";
     }
     NSString *ios = m[@"iosVersion"];
@@ -167,10 +211,29 @@ static NSDictionary *ZTechNormalizeProfile(NSDictionary *raw) {
 }
 
 static NSDictionary *ZTechLoadProfile(void) {
-    if (gCachedProfile) {
+    CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+    if (gCachedProfile && (now - gLastProfileLoadTime) < 1.5) {
         return gCachedProfile;
     }
+    gLastProfileLoadTime = now;
 
+    // 1. Check inside app's own sandbox container first (written directly by ZTechDeviceDatabase & ZTechVaultManager)
+    NSString *home = NSHomeDirectory();
+    if (home.length > 0) {
+        NSArray<NSString *> *localPaths = @[
+            [home stringByAppendingPathComponent:@"Documents/_zt_active_profile.plist"],
+            [home stringByAppendingPathComponent:@"Library/Preferences/com.ztech.profile.plist"]
+        ];
+        for (NSString *lp in localPaths) {
+            NSDictionary *d = [NSDictionary dictionaryWithContentsOfFile:lp];
+            if (d && [d isKindOfClass:[NSDictionary class]] && d.count > 0) {
+                gCachedProfile = ZTechNormalizeProfile(d);
+                return gCachedProfile;
+            }
+        }
+    }
+
+    // 2. Check CFPreferences AnyApplication
     CFPropertyListRef cfVal = CFPreferencesCopyAppValue(CFSTR("ZTechGlobalProfile"), kCFPreferencesAnyApplication);
     if (cfVal) {
         if (CFGetTypeID(cfVal) == CFDictionaryGetTypeID()) {
@@ -181,6 +244,7 @@ static NSDictionary *ZTechLoadProfile(void) {
         CFRelease(cfVal);
     }
 
+    // 3. Check shared global paths
     NSArray<NSString *> *paths = @[
         @"/Library/Preferences/ZTechShared/com.ztech.profile.plist",
         @"/var/jb/Library/Preferences/ZTechShared/com.ztech.profile.plist",
@@ -429,9 +493,19 @@ static CFTypeRef hooked_MGCopyAnswer(CFStringRef prop) {
         if ([key isEqualToString:@"ProductType"]) {
             NSString *machine = prof[@"machineId"] ?: @"iPhone17,2";
             return (__bridge_retained CFTypeRef)[machine copy];
+        } else if ([key isEqualToString:@"MarketingName"] ||
+                   [key isEqualToString:@"DeviceName"] ||
+                   [key isEqualToString:@"UserAssignedDeviceName"] ||
+                   [key isEqualToString:@"LocalizedModel"]) {
+            NSString *modelName = prof[@"modelName"] ?: @"iPhone 16 Pro Max";
+            return (__bridge_retained CFTypeRef)[modelName copy];
+        } else if ([key isEqualToString:@"HWModelStr"] || [key isEqualToString:@"ModelNumber"]) {
+            return (__bridge_retained CFTypeRef)[@"D94AP" copy];
         } else if ([key isEqualToString:@"ProductVersion"]) {
             NSString *ver = prof[@"iosVersion"] ?: @"18.2.1";
             return (__bridge_retained CFTypeRef)[ver copy];
+        } else if ([key isEqualToString:@"BuildVersion"]) {
+            return (__bridge_retained CFTypeRef)[@"22C152" copy];
         } else if ([key isEqualToString:@"UniqueDeviceID"]) {
             NSString *uuid = prof[@"identifier"] ?: @"7BD46FDA-D93D-45BD-9158-7178669502DD";
             return (__bridge_retained CFTypeRef)[uuid copy];
@@ -440,12 +514,18 @@ static CFTypeRef hooked_MGCopyAnswer(CFStringRef prop) {
     return orig_MGCopyAnswer ? orig_MGCopyAnswer(prop) : NULL;
 }
 
-#pragma mark - Objective-C Swizzles (UIDevice & NSProcessInfo)
+#pragma mark - Objective-C Swizzles (UIDevice, NSProcessInfo, NSMutableURLRequest, UILabel, WKWebView)
 
 static NSString *(*orig_systemVersion)(id, SEL) = NULL;
 static NSString *swizzled_systemVersion(id self, SEL _cmd) {
     NSDictionary *prof = ZTechLoadProfile();
     return prof[@"iosVersion"] ?: @"18.2.1";
+}
+
+static NSString *(*orig_deviceName)(id, SEL) = NULL;
+static NSString *swizzled_deviceName(id self, SEL _cmd) {
+    NSDictionary *prof = ZTechLoadProfile();
+    return prof[@"modelName"] ?: @"iPhone 16 Pro Max";
 }
 
 static float (*orig_batteryLevel)(id, SEL) = NULL;
@@ -495,6 +575,136 @@ static unsigned long long swizzled_physicalMemory(id self, SEL _cmd) {
     return (unsigned long long)ramGB * 1024ULL * 1024ULL * 1024ULL;
 }
 
+static NSString *ZTechRewriteDeviceTokensInString(NSString *input) {
+    if (![input isKindOfClass:[NSString class]] || input.length == 0) return input;
+    if (![input containsString:@"iPhone 7"] &&
+        ![input containsString:@"iPhone9,"] &&
+        ![input containsString:@"iPhone 6"] &&
+        ![input containsString:@"iPhone8,"] &&
+        ![input containsString:@"15.8"] &&
+        ![input containsString:@"15_8"]) {
+        return input;
+    }
+    NSDictionary *prof = ZTechLoadProfile();
+    NSString *modelName = prof[@"modelName"] ?: @"iPhone 16 Pro Max";
+    NSString *machineId = prof[@"machineId"] ?: @"iPhone17,2";
+    NSString *iosVer = prof[@"iosVersion"] ?: @"18.2.1";
+    NSString *iosVerUnderscore = [iosVer stringByReplacingOccurrencesOfString:@"." withString:@"_"];
+
+    NSString *out = input;
+    out = [out stringByReplacingOccurrencesOfString:@"iPhone 7 Plus" withString:modelName];
+    out = [out stringByReplacingOccurrencesOfString:@"iPhone 7" withString:modelName];
+    out = [out stringByReplacingOccurrencesOfString:@"iPhone9,1" withString:machineId];
+    out = [out stringByReplacingOccurrencesOfString:@"iPhone9,2" withString:machineId];
+    out = [out stringByReplacingOccurrencesOfString:@"iPhone9,3" withString:machineId];
+    out = [out stringByReplacingOccurrencesOfString:@"iPhone9,4" withString:machineId];
+    out = [out stringByReplacingOccurrencesOfString:@"15.8.3" withString:iosVer];
+    out = [out stringByReplacingOccurrencesOfString:@"15.8.2" withString:iosVer];
+    out = [out stringByReplacingOccurrencesOfString:@"15.8.1" withString:iosVer];
+    out = [out stringByReplacingOccurrencesOfString:@"15.8" withString:iosVer];
+    out = [out stringByReplacingOccurrencesOfString:@"15_8_3" withString:iosVerUnderscore];
+    out = [out stringByReplacingOccurrencesOfString:@"15_8_2" withString:iosVerUnderscore];
+    out = [out stringByReplacingOccurrencesOfString:@"15_8" withString:iosVerUnderscore];
+    return out;
+}
+
+static void (*orig_URLReq_setValue)(id, SEL, NSString *, NSString *) = NULL;
+static void swizzled_URLReq_setValue(id self, SEL _cmd, NSString *value, NSString *field) {
+    if ([value isKindOfClass:[NSString class]]) {
+        value = ZTechRewriteDeviceTokensInString(value);
+    }
+    if (orig_URLReq_setValue) {
+        orig_URLReq_setValue(self, _cmd, value, field);
+    }
+}
+
+static void (*orig_URLReq_addValue)(id, SEL, NSString *, NSString *) = NULL;
+static void swizzled_URLReq_addValue(id self, SEL _cmd, NSString *value, NSString *field) {
+    if ([value isKindOfClass:[NSString class]]) {
+        value = ZTechRewriteDeviceTokensInString(value);
+    }
+    if (orig_URLReq_addValue) {
+        orig_URLReq_addValue(self, _cmd, value, field);
+    }
+}
+
+static void (*orig_UILabel_setText)(id, SEL, NSString *) = NULL;
+static void swizzled_UILabel_setText(id self, SEL _cmd, NSString *text) {
+    if ([text isKindOfClass:[NSString class]] && text.length > 0) {
+        text = ZTechRewriteDeviceTokensInString(text);
+    }
+    if (orig_UILabel_setText) {
+        orig_UILabel_setText(self, _cmd, text);
+    }
+}
+
+static void (*orig_UILabel_setAttributedText)(id, SEL, NSAttributedString *) = NULL;
+static void swizzled_UILabel_setAttributedText(id self, SEL _cmd, NSAttributedString *attrText) {
+    if ([attrText isKindOfClass:[NSAttributedString class]] && attrText.length > 0) {
+        NSString *raw = attrText.string;
+        if ([raw containsString:@"iPhone 7"] || [raw containsString:@"iPhone9,"]) {
+            NSString *rewritten = ZTechRewriteDeviceTokensInString(raw);
+            if (![rewritten isEqualToString:raw]) {
+                NSMutableAttributedString *mut = [attrText mutableCopy];
+                [mut.mutableString setString:rewritten];
+                attrText = mut;
+            }
+        }
+    }
+    if (orig_UILabel_setAttributedText) {
+        orig_UILabel_setAttributedText(self, _cmd, attrText);
+    }
+}
+
+static id (*orig_WKWebView_initWithFrameConfig)(id, SEL, CGRect, id) = NULL;
+static id swizzled_WKWebView_initWithFrameConfig(id self, SEL _cmd, CGRect frame, id configuration) {
+    @try {
+        if (configuration) {
+            NSDictionary *prof = ZTechLoadProfile();
+            NSString *modelName = prof[@"modelName"] ?: @"iPhone 16 Pro Max";
+            NSString *safeModel = [modelName stringByReplacingOccurrencesOfString:@"'" withString:@""];
+            NSString *js = [NSString stringWithFormat:
+                @"(function(){"
+                @"var m='%@';"
+                @"function r(n){"
+                @"if(!n)return;"
+                @"if(n.nodeType===3){"
+                @"var v=n.nodeValue;"
+                @"if(v&&(v.indexOf('iPhone 7')!==-1||v.indexOf('iPhone9,')!==-1)){"
+                @"n.nodeValue=v.replace(/iPhone 7 Plus/g,m).replace(/iPhone 7/g,m).replace(/iPhone9,[1234]/g,m);"
+                @"}"
+                @"}else if(n.childNodes){for(var i=0;i<n.childNodes.length;i++)r(n.childNodes[i]);}"
+                @"}"
+                @"r(document.body||document.documentElement);"
+                @"if(typeof MutationObserver!=='undefined'){"
+                @"var obs=new MutationObserver(function(){r(document.body||document.documentElement);});"
+                @"obs.observe(document.documentElement,{childList:true,subtree:true,characterData:true});"
+                @"}"
+                @"setInterval(function(){r(document.body||document.documentElement);},350);"
+                @"})();", safeModel];
+
+            Class usrScriptCls = NSClassFromString(@"WKUserScript");
+            if (usrScriptCls) {
+                SEL allocSel = sel_registerName("alloc");
+                SEL initSel = sel_registerName("initWithSource:injectionTime:forMainFrameOnly:");
+                id scriptAlloc = ((id (*)(id, SEL))objc_msgSend)(usrScriptCls, allocSel);
+                if (scriptAlloc && [scriptAlloc respondsToSelector:initSel]) {
+                    id usrScript = ((id (*)(id, SEL, NSString *, NSInteger, BOOL))objc_msgSend)(scriptAlloc, initSel, js, 1, NO);
+                    SEL uccSel = sel_registerName("userContentController");
+                    if (usrScript && [configuration respondsToSelector:uccSel]) {
+                        id ucc = ((id (*)(id, SEL))objc_msgSend)(configuration, uccSel);
+                        SEL addSel = sel_registerName("addUserScript:");
+                        if (ucc && [ucc respondsToSelector:addSel]) {
+                            ((void (*)(id, SEL, id))objc_msgSend)(ucc, addSel, usrScript);
+                        }
+                    }
+                }
+            }
+        }
+    } @catch (NSException *e) {}
+    return orig_WKWebView_initWithFrameConfig ? orig_WKWebView_initWithFrameConfig(self, _cmd, frame, configuration) : nil;
+}
+
 #pragma mark - Safe Container Repair, Vault Snapshot/Restore & In-Process Reset
 
 static void ZTechEnsureContainerDirectoriesExist(NSString *home) {
@@ -528,6 +738,13 @@ static void ZTechSnapshotZaloKeychainAndPrefs(NSString *bundleId) {
     @try {
         NSString *home = NSHomeDirectory();
         NSString *docsDir = [home stringByAppendingPathComponent:@"Documents"];
+
+        // Write Zalo marker file so ZTechVaultManager always finds this container immediately
+        NSString *markerPath = [docsDir stringByAppendingPathComponent:@"_zt_zalo_marker.txt"];
+        if (bundleId.length > 0) {
+            [bundleId writeToFile:markerPath atomically:YES encoding:NSUTF8StringEncoding error:nil];
+            chmod([markerPath UTF8String], 0666);
+        }
 
         // 1. Export NSUserDefaults persistent domain to Documents/_zt_prefs_snapshot.plist
         if (bundleId.length > 0) {
@@ -651,6 +868,8 @@ static void ZTechWipeSubfolderContentsOnly(NSString *folderPath) {
     for (NSString *item in items) {
         if ([item isEqualToString:@"_zt_last_reset_token.txt"] ||
             [item isEqualToString:@"_zt_restore_trigger.txt"] ||
+            [item isEqualToString:@"_zt_zalo_marker.txt"] ||
+            [item isEqualToString:@"_zt_active_profile.plist"] ||
             [item hasPrefix:@".GlobalPreferences"] ||
             [item hasPrefix:@".com.apple."] ||
             [item isEqualToString:@"SplashBoard"] ||
@@ -675,6 +894,12 @@ static void ZTechCheckAndPerformInAppReset(NSString *bundleId) {
 
         NSString *home = NSHomeDirectory();
         ZTechEnsureContainerDirectoriesExist(home);
+
+        if ([lowerBundle containsString:@"zalo"] || [lowerBundle containsString:@"vng"]) {
+            NSString *markerPath = [home stringByAppendingPathComponent:@"Documents/_zt_zalo_marker.txt"];
+            [bundleId writeToFile:markerPath atomically:YES encoding:NSUTF8StringEncoding error:nil];
+            chmod([markerPath UTF8String], 0666);
+        }
 
         // First check if a Vault Restore was triggered
         ZTechCheckAndPerformInAppRestore(bundleId);
@@ -730,6 +955,32 @@ static void ZTechCheckAndPerformInAppReset(NSString *bundleId) {
 
 #pragma mark - Constructor
 
+typedef void (*MSHookFunction_t)(void *symbol, void *replace, void **result);
+
+static MSHookFunction_t ZTechResolveMSHookFunction(void) {
+    void *fn = dlsym(RTLD_DEFAULT, "MSHookFunction");
+    if (fn) return (MSHookFunction_t)fn;
+
+    const char *hookLibs[] = {
+        "/var/jb/usr/lib/libellekit.dylib",
+        "/var/jb/Library/Frameworks/CydiaSubstrate.framework/CydiaSubstrate",
+        "/Library/Frameworks/CydiaSubstrate.framework/CydiaSubstrate",
+        "/usr/lib/libsubstrate.dylib",
+        "/usr/lib/libsubstitute.dylib"
+    };
+    for (size_t i = 0; i < sizeof(hookLibs) / sizeof(hookLibs[0]); i++) {
+        void *handle = dlopen(hookLibs[i], RTLD_LAZY | RTLD_NOLOAD);
+        if (!handle) {
+            handle = dlopen(hookLibs[i], RTLD_LAZY);
+        }
+        if (handle) {
+            fn = dlsym(handle, "MSHookFunction");
+            if (fn) return (MSHookFunction_t)fn;
+        }
+    }
+    return NULL;
+}
+
 __attribute__((constructor))
 static void ZTechHookInit(void) {
     @autoreleasepool {
@@ -758,10 +1009,16 @@ static void ZTechHookInit(void) {
         // Automatically snapshot Zalo Keychain & Prefs when Zalo becomes active or enters background so Account Vault always has complete auth tokens
         NSString *lowerBundle = [bundleId lowercaseString];
         if ([lowerBundle containsString:@"zalo"] || [lowerBundle containsString:@"vng"]) {
+            NSString *markerPath = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/_zt_zalo_marker.txt"];
+            [bundleId writeToFile:markerPath atomically:YES encoding:NSUTF8StringEncoding error:nil];
+            chmod([markerPath UTF8String], 0666);
+
             [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidBecomeActiveNotification
                                                               object:nil
                                                                queue:[NSOperationQueue mainQueue]
                                                           usingBlock:^(NSNotification * _Nonnull note) {
+                gLastProfileLoadTime = 0;
+                ZTechLoadProfile();
                 ZTechSnapshotZaloKeychainAndPrefs(bundleId);
             }];
             [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationWillResignActiveNotification
@@ -781,12 +1038,18 @@ static void ZTechHookInit(void) {
             });
         }
 
-        // 1. Objective-C Swizzles on UIDevice, NSProcessInfo & NSURLSessionConfiguration (for per-account Proxy)
+        // 1. Objective-C Swizzles on UIDevice, NSProcessInfo, NSURLSessionConfiguration, NSMutableURLRequest, UILabel & WKWebView
         Class uiDeviceCls = [UIDevice class];
         Method mSysVer = class_getInstanceMethod(uiDeviceCls, @selector(systemVersion));
         if (mSysVer) {
             orig_systemVersion = (void *)method_getImplementation(mSysVer);
             method_setImplementation(mSysVer, (IMP)swizzled_systemVersion);
+        }
+
+        Method mDevName = class_getInstanceMethod(uiDeviceCls, @selector(name));
+        if (mDevName) {
+            orig_deviceName = (void *)method_getImplementation(mDevName);
+            method_setImplementation(mDevName, (IMP)swizzled_deviceName);
         }
 
         Method mBat = class_getInstanceMethod(uiDeviceCls, @selector(batteryLevel));
@@ -832,18 +1095,68 @@ static void ZTechHookInit(void) {
             method_setImplementation(mEphCfg, (IMP)swizzled_ephemeralSessionConfig);
         }
 
-        // 2. Safe Mach-O Symbol Rebinding (App Binary Only + vm_protect)
-        orig_uname = dlsym(RTLD_DEFAULT, "uname");
-        orig_sysctlbyname = dlsym(RTLD_DEFAULT, "sysctlbyname");
-        orig_sysctl = dlsym(RTLD_DEFAULT, "sysctl");
-        orig_MGCopyAnswer = dlsym(RTLD_DEFAULT, "MGCopyAnswer");
-        orig_CFNetworkCopySystemProxySettings = dlsym(RTLD_DEFAULT, "CFNetworkCopySystemProxySettings");
+        Class mutReqCls = [NSMutableURLRequest class];
+        Method mReqSet = class_getInstanceMethod(mutReqCls, @selector(setValue:forHTTPHeaderField:));
+        if (mReqSet) {
+            orig_URLReq_setValue = (void *)method_getImplementation(mReqSet);
+            method_setImplementation(mReqSet, (IMP)swizzled_URLReq_setValue);
+        }
+        Method mReqAdd = class_getInstanceMethod(mutReqCls, @selector(addValue:forHTTPHeaderField:));
+        if (mReqAdd) {
+            orig_URLReq_addValue = (void *)method_getImplementation(mReqAdd);
+            method_setImplementation(mReqAdd, (IMP)swizzled_URLReq_addValue);
+        }
 
-        gRebindings[0] = (struct zt_rebinding){"uname", (void *)hooked_uname, (void **)&orig_uname};
-        gRebindings[1] = (struct zt_rebinding){"sysctlbyname", (void *)hooked_sysctlbyname, (void **)&orig_sysctlbyname};
-        gRebindings[2] = (struct zt_rebinding){"sysctl", (void *)hooked_sysctl, (void **)&orig_sysctl};
-        gRebindings[3] = (struct zt_rebinding){"MGCopyAnswer", (void *)hooked_MGCopyAnswer, (void **)&orig_MGCopyAnswer};
-        gRebindings[4] = (struct zt_rebinding){"CFNetworkCopySystemProxySettings", (void *)hooked_CFNetworkCopySystemProxySettings, (void **)&orig_CFNetworkCopySystemProxySettings};
+        if ([lowerBundle containsString:@"zalo"] || [lowerBundle containsString:@"vng"]) {
+            Class lblCls = [UILabel class];
+            Method mSetTxt = class_getInstanceMethod(lblCls, @selector(setText:));
+            if (mSetTxt) {
+                orig_UILabel_setText = (void *)method_getImplementation(mSetTxt);
+                method_setImplementation(mSetTxt, (IMP)swizzled_UILabel_setText);
+            }
+            Method mSetAttrTxt = class_getInstanceMethod(lblCls, @selector(setAttributedText:));
+            if (mSetAttrTxt) {
+                orig_UILabel_setAttributedText = (void *)method_getImplementation(mSetAttrTxt);
+                method_setImplementation(mSetAttrTxt, (IMP)swizzled_UILabel_setAttributedText);
+            }
+
+            Class wkCls = NSClassFromString(@"WKWebView");
+            if (wkCls) {
+                Method mWkInit = class_getInstanceMethod(wkCls, sel_registerName("initWithFrame:configuration:"));
+                if (mWkInit) {
+                    orig_WKWebView_initWithFrameConfig = (void *)method_getImplementation(mWkInit);
+                    method_setImplementation(mWkInit, (IMP)swizzled_WKWebView_initWithFrameConfig);
+                }
+            }
+        }
+
+        // 2. C-Function Hooks: MSHookFunction (ElleKit/Substrate/Substitute) + Chained-Fixups GOT Rebinding
+        void *raw_uname = dlsym(RTLD_DEFAULT, "uname");
+        void *raw_sysctlbyname = dlsym(RTLD_DEFAULT, "sysctlbyname");
+        void *raw_sysctl = dlsym(RTLD_DEFAULT, "sysctl");
+        void *raw_MGCopyAnswer = dlsym(RTLD_DEFAULT, "MGCopyAnswer");
+        void *raw_CFProxy = dlsym(RTLD_DEFAULT, "CFNetworkCopySystemProxySettings");
+
+        orig_uname = raw_uname;
+        orig_sysctlbyname = raw_sysctlbyname;
+        orig_sysctl = raw_sysctl;
+        orig_MGCopyAnswer = raw_MGCopyAnswer;
+        orig_CFNetworkCopySystemProxySettings = raw_CFProxy;
+
+        MSHookFunction_t msHook = ZTechResolveMSHookFunction();
+        if (msHook != NULL) {
+            if (raw_uname) msHook(raw_uname, (void *)hooked_uname, (void **)&orig_uname);
+            if (raw_sysctlbyname) msHook(raw_sysctlbyname, (void *)hooked_sysctlbyname, (void **)&orig_sysctlbyname);
+            if (raw_sysctl) msHook(raw_sysctl, (void *)hooked_sysctl, (void **)&orig_sysctl);
+            if (raw_MGCopyAnswer) msHook(raw_MGCopyAnswer, (void *)hooked_MGCopyAnswer, (void **)&orig_MGCopyAnswer);
+            if (raw_CFProxy) msHook(raw_CFProxy, (void *)hooked_CFNetworkCopySystemProxySettings, (void **)&orig_CFNetworkCopySystemProxySettings);
+        }
+
+        gRebindings[0] = (struct zt_rebinding){"uname", (void *)hooked_uname, raw_uname, (void **)&orig_uname};
+        gRebindings[1] = (struct zt_rebinding){"sysctlbyname", (void *)hooked_sysctlbyname, raw_sysctlbyname, (void **)&orig_sysctlbyname};
+        gRebindings[2] = (struct zt_rebinding){"sysctl", (void *)hooked_sysctl, raw_sysctl, (void **)&orig_sysctl};
+        gRebindings[3] = (struct zt_rebinding){"MGCopyAnswer", (void *)hooked_MGCopyAnswer, raw_MGCopyAnswer, (void **)&orig_MGCopyAnswer};
+        gRebindings[4] = (struct zt_rebinding){"CFNetworkCopySystemProxySettings", (void *)hooked_CFNetworkCopySystemProxySettings, raw_CFProxy, (void **)&orig_CFNetworkCopySystemProxySettings};
         gRebindingsCount = 5;
 
         _dyld_register_func_for_add_image(rebind_symbols_for_image);

@@ -1,4 +1,5 @@
 #import "ZTechDeviceDatabase.h"
+#import "ZTechVaultManager.h"
 #import <sys/utsname.h>
 #import <sys/stat.h>
 #import <spawn.h>
@@ -437,6 +438,28 @@ extern char **environ;
         }
     }
 
+    // Also write _zt_active_profile.plist directly inside Zalo's own Data Container & AppGroup so sandboxed Zalo can always read it
+    NSString *zaloContainer = [ZTechVaultManager findZaloDataContainerPath];
+    if (zaloContainer.length > 0) {
+        NSString *zDocs = [zaloContainer stringByAppendingPathComponent:@"Documents"];
+        if (![fm fileExistsAtPath:zDocs]) {
+            [fm createDirectoryAtPath:zDocs withIntermediateDirectories:YES attributes:nil error:nil];
+        }
+        NSString *zProfPath = [zDocs stringByAppendingPathComponent:@"_zt_active_profile.plist"];
+        if ([sharedDict writeToFile:zProfPath atomically:YES]) {
+            chown([zProfPath UTF8String], 501, 501);
+            chmod([zProfPath UTF8String], 0666);
+        }
+        NSString *zPrefDir = [zaloContainer stringByAppendingPathComponent:@"Library/Preferences"];
+        if ([fm fileExistsAtPath:zPrefDir]) {
+            NSString *zPrefPath = [zPrefDir stringByAppendingPathComponent:@"com.ztech.profile.plist"];
+            if ([sharedDict writeToFile:zPrefPath atomically:YES]) {
+                chown([zPrefPath UTF8String], 501, 501);
+                chmod([zPrefPath UTF8String], 0666);
+            }
+        }
+    }
+
     profile.writtenFilesCount = written;
     profile.successItemsCount = (written == 7) ? 10 : (written * 10 / 7);
     return (written == 7);
@@ -449,7 +472,9 @@ extern char **environ;
         if ([item isEqualToString:@".com.apple.mobile_container_manager.metadata.plist"] ||
             [item hasPrefix:@".GlobalPreferences"] ||
             [item hasPrefix:@"com.apple."] ||
-            [item isEqualToString:@"_zt_last_reset_token.txt"]) {
+            [item isEqualToString:@"_zt_last_reset_token.txt"] ||
+            [item isEqualToString:@"_zt_zalo_marker.txt"] ||
+            [item isEqualToString:@"_zt_active_profile.plist"]) {
             continue;
         }
         NSString *fullPath = [dirPath stringByAppendingPathComponent:item];
@@ -503,32 +528,28 @@ extern char **environ;
         }
     }
 
-    NSArray<NSString *> *containerRoots = @[
-        @"/var/mobile/Containers/Data/Application",
-        @"/private/var/mobile/Containers/Data/Application",
-        @"/var/mobile/Containers/Shared/AppGroup",
-        @"/private/var/mobile/Containers/Shared/AppGroup"
-    ];
+    NSMutableSet<NSString *> *zaloContainers = [NSMutableSet set];
+    NSString *mainZalo = [ZTechVaultManager findZaloDataContainerPath];
+    if (mainZalo.length > 0) {
+        [zaloContainers addObject:mainZalo];
+    }
+    NSDictionary<NSString *, NSString *> *groups = [ZTechVaultManager findZaloAppGroupContainers];
+    for (NSString *gPath in groups.allValues) {
+        if (gPath.length > 0) {
+            [zaloContainers addObject:gPath];
+        }
+    }
 
-    for (NSString *rootPath in containerRoots) {
-        NSArray<NSString *> *uuidFolders = [fm contentsOfDirectoryAtPath:rootPath error:nil];
-        for (NSString *uuid in uuidFolders) {
-            NSString *containerPath = [rootPath stringByAppendingPathComponent:uuid];
-            NSString *metaPath = [containerPath stringByAppendingPathComponent:@".com.apple.mobile_container_manager.metadata.plist"];
-            NSDictionary *meta = [NSDictionary dictionaryWithContentsOfFile:metaPath];
-            NSString *bundleId = [meta[@"MCMMetadataIdentifier"] lowercaseString];
-            if ([bundleId containsString:@"zalo"] || [bundleId containsString:@"vng"]) {
-                [self repairContainerStructureAtPath:containerPath fileManager:fm];
-                NSArray<NSString *> *subDirs = @[@"Documents", @"tmp", @"Library/Caches", @"Library/Cookies", @"Library/Preferences", @"Library/WebKit", @"Library/Application Support"];
-                for (NSString *sub in subDirs) {
-                    NSString *targetSub = [containerPath stringByAppendingPathComponent:sub];
-                    if ([fm fileExistsAtPath:targetSub]) {
-                        cleanedItems += [self cleanDirectoryContents:targetSub fileManager:fm];
-                    }
-                }
-                [self repairContainerStructureAtPath:containerPath fileManager:fm];
+    for (NSString *containerPath in zaloContainers) {
+        [self repairContainerStructureAtPath:containerPath fileManager:fm];
+        NSArray<NSString *> *subDirs = @[@"Documents", @"tmp", @"Library/Caches", @"Library/Cookies", @"Library/Preferences", @"Library/WebKit", @"Library/Application Support"];
+        for (NSString *sub in subDirs) {
+            NSString *targetSub = [containerPath stringByAppendingPathComponent:sub];
+            if ([fm fileExistsAtPath:targetSub]) {
+                cleanedItems += [self cleanDirectoryContents:targetSub fileManager:fm];
             }
         }
+        [self repairContainerStructureAtPath:containerPath fileManager:fm];
     }
 
     NSString *dir = [self storageDirectoryPath];

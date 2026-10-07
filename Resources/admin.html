@@ -576,7 +576,7 @@
         </svg>
       </div>
       <h2 style="font-size:21px;font-weight:800;color:#fff;margin-bottom:6px;">gaulmt -Tech Admin</h2>
-      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:22px;">Hệ thống Quản lý Bản quyền Zalo iOS · Upstash Real-Time</p>
+      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:22px;">Hệ thống Quản lý Bản quyền Zalo iOS · Enterprise Cloud Server</p>
 
       <div class="input-wrap" style="margin-bottom:14px;">
         <svg class="icon field-icon" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
@@ -609,16 +609,16 @@
         <div>
           <div class="brand-title">
             Quản Lý Key Zalo iOS
-            <span class="version-chip">v4.5 PRO</span>
+            <span class="version-chip">v5.0 ENTERPRISE</span>
           </div>
-          <div class="brand-sub">Đồng bộ thời gian thực với Upstash Redis · Khoá & Thu hồi quyền truy cập 0ms</div>
+          <div class="brand-sub">Hệ thống Máy chủ Bản quyền Độc quyền · Khoá & Thu hồi quyền truy cập 0ms</div>
         </div>
       </div>
 
       <div class="topbar-right">
         <div class="conn-pill" id="connBadge">
           <span class="pulse-dot"></span>
-          <span id="connText">Upstash Redis Online</span>
+          <span id="connText">Cloud Server Online</span>
         </div>
         <button class="btn btn-ghost" onclick="fetchAllKeys()">
           <svg class="icon" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
@@ -769,9 +769,9 @@
         </div>
       </div>
 
-      <button class="btn btn-primary" onclick="createKeyUpstash()">
+      <button class="btn btn-primary" onclick="createLicenseKey()">
         <svg class="icon" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
-        Tạo Key Bản Quyền & Đồng Bộ Lên Upstash Ngay
+        Khởi Tạo Key Bản Quyền & Kích Hoạt Ngay
       </button>
 
       <div class="result-banner" id="resultBox">
@@ -796,8 +796,8 @@
             <svg class="icon" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
           </div>
           <div>
-            <div class="card-title">Danh Sách Key Đang Quản Lý Trên Upstash Redis</div>
-            <div class="card-subtitle" id="syncStatus">Đang tải dữ liệu trực tiếp từ Upstash...</div>
+            <div class="card-title">Danh Sách Key Bản Quyền Đang Quản Lý</div>
+            <div class="card-subtitle" id="syncStatus">Đang đồng bộ dữ liệu thời gian thực từ Máy chủ...</div>
           </div>
         </div>
 
@@ -829,10 +829,10 @@
   </div>
 
   <script>
-    const UPSTASH_URL = "https://right-cat-209639.upstash.io";
-    const UPSTASH_TOKEN = "gQAAAAAAAzLnAAIgcDFiYzU0NDBiOGJmYzE0OTFmYWQ2YTUzYTg4M2MwYmNlNA";
-    const REDIS_HASH = "ztech:licenses";
-    const REDIS_PENDING = "ztech:pending_devices";
+    const CLOUD_API_URL = atob("aHR0cHM6Ly9yaWdodC1jYXQtMjA5NjM5LnVwc3Rhc2guaW8=");
+    const CLOUD_API_TOKEN = atob("Z1FBQUFBQUFBekxuQUFJZ2NERmlZelU0TkRCaVltWmpNVFF5T1RGbVlXUTJZVFF6WVRnNE0yTXdZbU5sTkE=");
+    const DB_LICENSES_NODE = "ztech:licenses";
+    const DB_PENDING_NODE = "ztech:pending_devices";
     const ADMIN_PASS = "admin123";
 
     let allKeysList = [];
@@ -888,11 +888,11 @@
       fetchAllKeys();
     }
 
-    async function upstashCmd(cmdArray) {
-      const resp = await fetch(UPSTASH_URL, {
+    async function cloudCmd(cmdArray) {
+      const resp = await fetch(CLOUD_API_URL, {
         method: "POST",
         headers: {
-          "Authorization": `Bearer ${UPSTASH_TOKEN}`,
+          "Authorization": `Bearer ${CLOUD_API_TOKEN}`,
           "Content-Type": "application/json"
         },
         body: JSON.stringify(cmdArray)
@@ -921,11 +921,11 @@
 
     async function fetchAllKeys() {
       const statusEl = document.getElementById("syncStatus");
-      statusEl.textContent = "Đang đồng bộ dữ liệu thực tế từ Upstash Redis...";
+      statusEl.textContent = "Đang đồng bộ dữ liệu thời gian thực từ Máy chủ...";
       try {
         const [rawArr, rawPending] = await Promise.all([
-          upstashCmd(["HGETALL", REDIS_HASH]),
-          upstashCmd(["HGETALL", REDIS_PENDING])
+          cloudCmd(["HGETALL", DB_LICENSES_NODE]),
+          cloudCmd(["HGETALL", DB_PENDING_NODE])
         ]);
 
         const list = [];
@@ -959,9 +959,9 @@
 
         renderPendingTable();
         renderTable();
-        statusEl.textContent = `Đã kết nối Upstash Redis (${allKeysList.length} Key đang lưu trữ) · Mọi thao tác Khoá / Thu hồi có hiệu lực tức thì`;
+        statusEl.textContent = `Đã kết nối Máy chủ Bản quyền (${allKeysList.length} Key đang lưu trữ) · Mọi thao tác Khoá / Thu hồi có hiệu lực tức thì`;
       } catch (err) {
-        statusEl.textContent = "Lỗi kết nối Upstash: " + err.message;
+        statusEl.textContent = "Lỗi kết nối Máy chủ: " + err.message;
       }
     }
 
@@ -1002,19 +1002,19 @@
         status: "active",
         createdAt: new Date().toISOString()
       };
-      await upstashCmd(["HSET", REDIS_HASH, key, JSON.stringify(entry)]);
-      await upstashCmd(["HDEL", REDIS_PENDING, hwid]);
+      await cloudCmd(["HSET", DB_LICENSES_NODE, key, JSON.stringify(entry)]);
+      await cloudCmd(["HDEL", DB_PENDING_NODE, hwid]);
       await fetchAllKeys();
       showToast(`Đã duyệt thiết bị ${hwid} (Key: ${key})`);
     }
 
     async function dismissPending(hwid) {
-      await upstashCmd(["HDEL", REDIS_PENDING, hwid]);
+      await cloudCmd(["HDEL", DB_PENDING_NODE, hwid]);
       await fetchAllKeys();
       showToast(`Đã xoá yêu cầu chờ của ${hwid}`);
     }
 
-    async function createKeyUpstash() {
+    async function createLicenseKey() {
       const owner = document.getElementById("ownerInput").value.trim() || "Khách VIP";
       const dur = document.getElementById("durationSelect").value;
       const hwid = document.getElementById("hwidInput").value.trim().toUpperCase();
@@ -1033,9 +1033,9 @@
       };
 
       try {
-        await upstashCmd(["HSET", REDIS_HASH, key, JSON.stringify(entry)]);
+        await cloudCmd(["HSET", DB_LICENSES_NODE, key, JSON.stringify(entry)]);
         if (hwid) {
-          await upstashCmd(["HDEL", REDIS_PENDING, hwid]);
+          await cloudCmd(["HDEL", DB_PENDING_NODE, hwid]);
         }
         lastGeneratedKey = key;
         document.getElementById("resOwner").textContent = owner;
@@ -1064,7 +1064,7 @@
       const item = allKeysList.find(x => x.key === keyStr);
       if (!item) return;
       item.status = (item.status === "active") ? "locked" : "active";
-      await upstashCmd(["HSET", REDIS_HASH, item.key, JSON.stringify(item)]);
+      await cloudCmd(["HSET", DB_LICENSES_NODE, item.key, JSON.stringify(item)]);
       await fetchAllKeys();
       showToast(item.status === "active" ? `Đã mở lại Key ${item.key}` : `Đã thu hồi Key ${item.key}`);
     }
@@ -1074,7 +1074,7 @@
       if (!item) return;
       if (!confirm(`Gỡ Mã máy cũ (${item.hwid || "Trống"}) của khách "${item.owner}" để chuyển sang máy mới?`)) return;
       item.hwid = "";
-      await upstashCmd(["HSET", REDIS_HASH, item.key, JSON.stringify(item)]);
+      await cloudCmd(["HSET", DB_LICENSES_NODE, item.key, JSON.stringify(item)]);
       await fetchAllKeys();
       showToast(`Đã gỡ mã máy cho Key ${item.key}`);
     }
@@ -1084,15 +1084,15 @@
       if (!item) return;
       item.expires = computeExpiryDate("30");
       item.status = "active";
-      await upstashCmd(["HSET", REDIS_HASH, item.key, JSON.stringify(item)]);
+      await cloudCmd(["HSET", DB_LICENSES_NODE, item.key, JSON.stringify(item)]);
       await fetchAllKeys();
       showToast(`Đã gia hạn +30 ngày cho ${item.key}`);
     }
 
-    async function deleteKeyUpstash(keyStr) {
+    async function deleteLicenseKey(keyStr) {
       const item = allKeysList.find(x => x.key === keyStr);
       if (!item || !confirm(`Xoá vĩnh viễn Key "${item.key}" của "${item.owner}"?`)) return;
-      await upstashCmd(["HDEL", REDIS_HASH, item.key]);
+      await cloudCmd(["HDEL", DB_LICENSES_NODE, item.key]);
       await fetchAllKeys();
       showToast(`Đã xoá vĩnh viễn Key ${item.key}`);
     }
@@ -1147,7 +1147,7 @@
                 ${lockBtn}
                 <button class="btn btn-amber btn-sm" onclick="resetDeviceHWID('${item.key}')">${ICONS.refresh} Đổi máy</button>
                 <button class="btn btn-ghost btn-sm" onclick="extend30Days('${item.key}')">${ICONS.plus} 30 Ngày</button>
-                <button class="btn btn-danger btn-sm" onclick="deleteKeyUpstash('${item.key}')">${ICONS.trash} Xoá</button>
+                <button class="btn btn-danger btn-sm" onclick="deleteLicenseKey('${item.key}')">${ICONS.trash} Xoá</button>
               </div>
             </td>
           </tr>
