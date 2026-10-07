@@ -206,9 +206,9 @@ static NSString * const kRedisPendingHashKey  = @"ztech:pending_devices";
                 [self syncLicenseStateWithHook:NO];
                 [self registerPendingDeviceInUpstash:myHwid];
                 if (cleanKey.length == 0) {
-                    if (completion) completion(NO, [NSString stringWithFormat:@"Mã máy %@ đã gửi lên hệ thống chờ duyệt!\nBấm mở khoá trên Web Admin rồi nhấn lại nút này.", myHwid], nil, nil);
+                    if (completion) completion(NO, @"Vui lòng nhập hoặc dán mã Key!", nil, nil);
                 } else {
-                    if (completion) completion(NO, @"Mã Key không tồn tại hoặc đã bị Admin xoá khỏi hệ thống!", nil, nil);
+                    if (completion) completion(NO, @"Mã Key không hợp lệ hoặc không tồn tại!", nil, nil);
                 }
                 return;
             }
@@ -217,7 +217,7 @@ static NSString * const kRedisPendingHashKey  = @"ztech:pending_devices";
             NSString *status = [matchedEntry[@"status"] ?: @"active" lowercaseString];
             if (![status isEqualToString:@"active"]) {
                 [self syncLicenseStateWithHook:NO];
-                if (completion) completion(NO, @"⛔ Key này đã bị Admin THU HỒI hoặc KHOÁ từ xa!", nil, nil);
+                if (completion) completion(NO, @"Key này đã bị thu hồi hoặc khoá!", nil, nil);
                 return;
             }
 
@@ -232,7 +232,7 @@ static NSString * const kRedisPendingHashKey  = @"ztech:pending_devices";
                     NSDate *endOfDay = [expDate dateByAddingTimeInterval:86399];
                     if ([[NSDate date] compare:endOfDay] == NSOrderedDescending) {
                         [self syncLicenseStateWithHook:NO];
-                        if (completion) completion(NO, [NSString stringWithFormat:@"⏰ Key đã hết hạn vào ngày %@. Vui lòng liên hệ Admin gia hạn!", expiresStr], nil, nil);
+                        if (completion) completion(NO, [NSString stringWithFormat:@"Key đã hết hạn (%@)!", expiresStr], nil, nil);
                         return;
                     }
                 }
@@ -256,14 +256,13 @@ static NSString * const kRedisPendingHashKey  = @"ztech:pending_devices";
                     [self executeUpstashCommand:@[@"HDEL", kRedisPendingHashKey, myHwid] completion:nil];
                     dispatch_async(dispatch_get_main_queue(), ^{
                         [self persistValidKey:matchedKeyName owner:owner expiryText:expDisplay];
-                        if (completion) completion(YES, [NSString stringWithFormat:@"Kích hoạt thành công! Đã khoá cứng vào máy %@", myHwid], owner, expDisplay);
+                        if (completion) completion(YES, @"Kích hoạt bản quyền thành công!", owner, expDisplay);
                     });
                 }];
                 return;
             } else if (![boundHwid isEqualToString:@"*"] && ![boundHwid isEqualToString:myHwid]) {
                 [self syncLicenseStateWithHook:NO];
-                NSString *errMsg = [NSString stringWithFormat:@"⛔ Key này đã gắn cứng với thiết bị khác (%@)!\nMã máy của bạn là: %@", boundHwid, myHwid];
-                if (completion) completion(NO, errMsg, nil, nil);
+                if (completion) completion(NO, @"Key này đã được kích hoạt trên thiết bị khác!", nil, nil);
                 return;
             }
 

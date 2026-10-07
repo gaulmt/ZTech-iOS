@@ -4,13 +4,142 @@
 #import "ZTechVaultManager.h"
 #import "ZTechVectorIcons.h"
 
+#pragma mark - Crash-Proof Native TextField & Multi-Fallback Clipboard Reader
+
+static NSString *ZTechReadClipboardSafely(void) {
+    // 1. Primary: UIPasteboard (with writable TMPDIR=/tmp and kTCCServicePasteboard entitlement)
+    @try {
+        UIPasteboard *pb = [UIPasteboard generalPasteboard];
+        if (pb) {
+            NSString *s = pb.string;
+            if ([s isKindOfClass:[NSString class]] && s.length > 0) {
+                return [s stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+            }
+            NSArray<NSString *> *arr = pb.strings;
+            if ([arr isKindOfClass:[NSArray class]] && arr.count > 0 && [arr.firstObject isKindOfClass:[NSString class]]) {
+                NSString *first = [arr.firstObject stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+                if (first.length > 0) return first;
+            }
+            NSArray<NSString *> *types = @[@"public.utf8-plain-text", @"public.plain-text", @"public.text", @"NSStringPboardType"];
+            for (NSString *t in types) {
+                NSData *d = [pb dataForPasteboardType:t];
+                if ([d isKindOfClass:[NSData class]] && d.length > 0) {
+                    NSString *decoded = [[NSString alloc] initWithData:d encoding:NSUTF8StringEncoding];
+                    if (decoded.length > 0) {
+                        return [decoded stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+                    }
+                }
+            }
+        }
+    } @catch (NSException *e) {}
+
+    // 2. Fallback: Direct scan of iOS pboardd cache (/var/mobile/Library/Caches/com.apple.Pasteboard)
+    @try {
+        NSFileManager *fm = [NSFileManager defaultManager];
+        NSArray<NSString *> *pbRoots = @[
+            @"/var/mobile/Library/Caches/com.apple.Pasteboard",
+            @"/private/var/mobile/Library/Caches/com.apple.Pasteboard",
+            @"/var/jb/var/mobile/Library/Caches/com.apple.Pasteboard"
+        ];
+        NSString *newestFile = nil;
+        NSDate *newestDate = nil;
+
+        for (NSString *root in pbRoots) {
+            NSDirectoryEnumerator *en = [fm enumeratorAtPath:root];
+            NSString *rel = nil;
+            while ((rel = [en nextObject])) {
+                NSString *full = [root stringByAppendingPathComponent:rel];
+                NSDictionary *attrs = [fm attributesOfItemAtPath:full error:nil];
+                if ([attrs[NSFileType] isEqualToString:NSFileTypeRegular]) {
+                    unsigned long long fSize = [attrs[NSFileSize] unsignedLongLongValue];
+                    if (fSize > 0 && fSize < 4096 && ![rel hasSuffix:@".plist"] && ![rel hasSuffix:@".db"]) {
+                        NSDate *mDate = attrs[NSFileModificationDate];
+                        if (!newestDate || (mDate && [mDate compare:newestDate] == NSOrderedDescending)) {
+                            newestDate = mDate;
+                            newestFile = full;
+                        }
+                    }
+                }
+            }
+        }
+        if (newestFile) {
+            NSData *raw = [NSData dataWithContentsOfFile:newestFile];
+            if (raw.length > 0) {
+                NSString *txt = [[NSString alloc] initWithData:raw encoding:NSUTF8StringEncoding];
+                if (txt.length > 0) {
+                    NSString *clean = [txt stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+                    if (clean.length > 0) return clean;
+                }
+            }
+        }
+    } @catch (NSException *e) {}
+
+    return @"";
+}
+
+@interface ZTechSafeTextField : UITextField
+@property (nonatomic, assign) UIEdgeInsets textInsets;
+@end
+
+@implementation ZTechSafeTextField
+
+- (instancetype)initWithFrame:(CGRect)frame {
+    self = [super initWithFrame:frame];
+    if (self) {
+        _textInsets = UIEdgeInsetsMake(0, 14, 0, 78);
+        // Disable _UITextPasteController & NSItemProvider sandbox token XPC that crashes unsandboxed system apps
+        if (@available(iOS 11.0, *)) {
+            self.pasteConfiguration = nil;
+            if (self.textDragInteraction) {
+                self.textDragInteraction.enabled = NO;
+            }
+        }
+        if (@available(iOS 15.0, *)) {
+            self.inputAssistantItem.leadingBarButtonGroups = @[];
+            self.inputAssistantItem.trailingBarButtonGroups = @[];
+        }
+    }
+    return self;
+}
+
+- (CGRect)textRectForBounds:(CGRect)bounds {
+    return UIEdgeInsetsInsetRect(bounds, self.textInsets);
+}
+
+- (CGRect)editingRectForBounds:(CGRect)bounds {
+    return UIEdgeInsetsInsetRect(bounds, self.textInsets);
+}
+
+- (CGRect)placeholderRectForBounds:(CGRect)bounds {
+    return UIEdgeInsetsInsetRect(bounds, self.textInsets);
+}
+
+- (BOOL)canPerformAction:(SEL)action withSender:(id)sender {
+    if (action == @selector(paste:)) return YES;
+    if (action == @selector(copy:) || action == @selector(cut:) || action == @selector(selectAll:)) {
+        return [super canPerformAction:action withSender:sender];
+    }
+    return NO;
+}
+
+- (void)paste:(id)sender {
+    // Bypass UIKit _UITextPasteController / NSItemProvider XPC and directly paste plain text
+    NSString *clip = ZTechReadClipboardSafely();
+    if (clip.length > 0) {
+        self.text = clip;
+        [self sendActionsForControlEvents:UIControlEventEditingChanged];
+    }
+}
+
+@end
+
 typedef NS_ENUM(NSInteger, ZTechMainTab) {
     ZTechMainTabFeatures = 0,
     ZTechMainTabVault = 1,
     ZTechMainTabLicense = 2
 };
 
-@interface ZTechRootViewController ()
+@interface ZTechRootViewController () <UITextFieldDelegate>
 
 @property (nonatomic, strong) ZTechDeviceProfile *currentProfile;
 @property (nonatomic, assign) ZTechModelTierFilter currentModelTier;
@@ -76,33 +205,25 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
 // TAB 3: License UI
 @property (nonatomic, strong) UIImageView *licShieldIconView;
 @property (nonatomic, strong) UILabel *licMainStateLabel;
-@property (nonatomic, strong) UILabel *licHwidValueLabel;
 @property (nonatomic, strong) UILabel *licKeyUsedValueLabel;
 @property (nonatomic, strong) UILabel *licPlanDetailValueLabel;
 @property (nonatomic, strong) UIButton *btnRefreshLicenseCloud;
 
-// Lock Screen Overlay UI (When unlicensed)
+// Minimalist Key Input Overlay (Only Key Input Box + Confirm Button)
 @property (nonatomic, strong) UIView *lockOverlayView;
-@property (nonatomic, strong) UILabel *keyDisplayLabel;
-@property (nonatomic, copy) NSString *enteredKeyBuffer;
-@property (nonatomic, strong) UIView *keypadContainerView;
+@property (nonatomic, strong) ZTechSafeTextField *keyInputField;
 @property (nonatomic, strong) UILabel *lockStatusMsgLabel;
 @property (nonatomic, strong) UIButton *btnActivateKey;
-@property (nonatomic, strong) UIButton *btnToggleKeypad;
 @property (nonatomic, strong) UIButton *btnCloseKeyOverlay;
 
 // Vault / Proxy Editor Modal Overlay
 @property (nonatomic, strong) UIView *vaultModalOverlay;
 @property (nonatomic, strong) UILabel *vaultModalTitleLabel;
-@property (nonatomic, strong) UILabel *vaultNameDisplayLabel;
-@property (nonatomic, strong) UILabel *vaultProxyDisplayLabel;
-@property (nonatomic, strong) UIButton *btnVaultFieldSwitch;
+@property (nonatomic, strong) ZTechSafeTextField *vaultNameInputField;
+@property (nonatomic, strong) ZTechSafeTextField *vaultProxyInputField;
 @property (nonatomic, strong) UIButton *btnVaultSaveConfirm;
-@property (nonatomic, assign) BOOL isEditingProxyField;
 @property (nonatomic, assign) BOOL isSavingNewVaultAccount;
 @property (nonatomic, copy) NSString *editingVaultAccountId;
-@property (nonatomic, copy) NSString *modalNameBuffer;
-@property (nonatomic, copy) NSString *modalProxyBuffer;
 
 @end
 
@@ -115,7 +236,6 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.view.backgroundColor = [UIColor colorWithRed:0.04 green:0.05 blue:0.04 alpha:1.0];
-    self.enteredKeyBuffer = [ZTechLicenseManager savedLicenseKey] ?: @"";
 
     NSUserDefaults *prefs = [NSUserDefaults standardUserDefaults];
     if (![prefs boolForKey:@"ZTech_V46_IP16_Initialized"]) {
@@ -164,12 +284,20 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
 }
 
 - (void)onAppBecameActive {
-    [ZTechLicenseManager refreshSavedLicenseInBackgroundWithCompletion:^(BOOL isValid, NSString * _Nonnull statusText) {
-        [self updateLicenseUIState];
-        if (!isValid && self.lockStatusMsgLabel) {
-            self.lockStatusMsgLabel.text = statusText;
+    if (![ZTechLicenseManager isLicenseCurrentlyValid]) {
+        // Auto-detect if user already copied a Key in clipboard so it's pre-filled immediately!
+        if (self.keyInputField && self.keyInputField.text.length == 0) {
+            NSString *clip = ZTechReadClipboardSafely();
+            if (clip.length >= 6 && clip.length <= 48 && [clip rangeOfString:@" "].location == NSNotFound) {
+                self.keyInputField.text = [clip uppercaseString];
+            }
         }
-    }];
+    }
+    if ([ZTechLicenseManager savedLicenseKey].length > 0) {
+        [ZTechLicenseManager refreshSavedLicenseInBackgroundWithCompletion:^(BOOL isValid, NSString * _Nonnull statusText) {
+            [self updateLicenseUIState];
+        }];
+    }
 }
 
 #pragma mark - Theme Palette & Custom SVG Icon Helpers
@@ -1469,7 +1597,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
     [licCard addSubview:lStack];
 
     UIView *lHeader = [self createSectionHeaderWithIcon:ZTechIconShieldCheck
-                                                  title:@"THÔNG TIN BẢN QUYỀN THIẾT BỊ"
+                                                  title:@"BẢN QUYỀN SỬ DỤNG"
                                               rightView:nil];
     [lStack addArrangedSubview:lHeader];
 
@@ -1505,61 +1633,43 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
     ]];
     [lStack addArrangedSubview:stateBox];
 
-    UILabel *vHwid = nil; UILabel *vKey = nil; UILabel *vPlan = nil;
-    UIView *rHwid = [self createLicenseDetailRowWithLabel:@"MÃ ĐỊNH DANH PHẦN CỨNG (HWID — 1 KEY = 1 MÁY)" outValue:&vHwid];
-    UIView *rKey = [self createLicenseDetailRowWithLabel:@"MÃ KEY ĐANG KÍCH HOẠT" outValue:&vKey];
-    UIView *rPlan = [self createLicenseDetailRowWithLabel:@"CHỦ SỞ HỮU & THỜI HẠN SỬ DỤNG" outValue:&vPlan];
-    self.licHwidValueLabel = vHwid;
+    UILabel *vKey = nil; UILabel *vPlan = nil;
+    UIView *rKey = [self createLicenseDetailRowWithLabel:@"MÃ KEY ĐANG DÙNG" outValue:&vKey];
+    UIView *rPlan = [self createLicenseDetailRowWithLabel:@"THỜI HẠN BẢN QUYỀN" outValue:&vPlan];
     self.licKeyUsedValueLabel = vKey;
     self.licPlanDetailValueLabel = vPlan;
-    self.licHwidValueLabel.font = [UIFont monospacedSystemFontOfSize:15.0 weight:UIFontWeightHeavy];
-    self.licHwidValueLabel.textColor = [self goldAccentColor];
+    self.licKeyUsedValueLabel.font = [UIFont monospacedSystemFontOfSize:14.5 weight:UIFontWeightHeavy];
+    self.licKeyUsedValueLabel.textColor = [self goldAccentColor];
 
-    [lStack addArrangedSubview:rHwid];
     [lStack addArrangedSubview:rKey];
     [lStack addArrangedSubview:rPlan];
 
-    // Action Buttons
-    self.btnRefreshLicenseCloud = [UIButton buttonWithType:UIButtonTypeSystem];
-    self.btnRefreshLicenseCloud.backgroundColor = [self creamPrimaryColor];
-    self.btnRefreshLicenseCloud.layer.cornerRadius = 13.0;
-    [self styleButton:self.btnRefreshLicenseCloud
-                title:@"Kiểm tra & Đồng bộ Bản quyền Cloud"
-             iconType:ZTechIconCloudSync
+    UIButton *btnChangeKey = [UIButton buttonWithType:UIButtonTypeSystem];
+    btnChangeKey.backgroundColor = [self creamPrimaryColor];
+    btnChangeKey.layer.cornerRadius = 13.0;
+    [self styleButton:btnChangeKey
+                title:@"Nhập / Đổi Key Bản Quyền"
+             iconType:ZTechIconKeyVip
             tintColor:[self darkInkColor]
                  font:[UIFont systemFontOfSize:14.5 weight:UIFontWeightHeavy]];
-    [self.btnRefreshLicenseCloud.heightAnchor constraintEqualToConstant:48.0].active = YES;
-    [self.btnRefreshLicenseCloud addTarget:self action:@selector(onTapRefreshLicenseCloud) forControlEvents:UIControlEventTouchUpInside];
-
-    UIButton *btnChangeKey = [UIButton buttonWithType:UIButtonTypeSystem];
-    btnChangeKey.backgroundColor = [UIColor colorWithRed:0.15 green:0.13 blue:0.08 alpha:1.0];
-    btnChangeKey.layer.cornerRadius = 13.0;
-    btnChangeKey.layer.borderWidth = 1.1;
-    btnChangeKey.layer.borderColor = [self goldAccentColor].CGColor;
-    [self styleButton:btnChangeKey
-                title:@"Nhập / Đổi Mã Key Bản Quyền Khác"
-             iconType:ZTechIconKeyVip
-            tintColor:[self goldAccentColor]
-                 font:[UIFont systemFontOfSize:14.0 weight:UIFontWeightBold]];
-    [btnChangeKey.heightAnchor constraintEqualToConstant:46.0].active = YES;
+    [btnChangeKey.heightAnchor constraintEqualToConstant:48.0].active = YES;
     [btnChangeKey addTarget:self action:@selector(onTapShowKeyModal) forControlEvents:UIControlEventTouchUpInside];
 
-    UIButton *btnCopyHWID = [UIButton buttonWithType:UIButtonTypeSystem];
-    btnCopyHWID.backgroundColor = [self surfaceInsetColor];
-    btnCopyHWID.layer.cornerRadius = 13.0;
-    btnCopyHWID.layer.borderWidth = 1.0;
-    btnCopyHWID.layer.borderColor = [self borderSubtleColor].CGColor;
-    [self styleButton:btnCopyHWID
-                title:@"Sao chép Mã máy (HWID) gửi Admin"
-             iconType:ZTechIconCopyClone
-            tintColor:[UIColor whiteColor]
+    self.btnRefreshLicenseCloud = [UIButton buttonWithType:UIButtonTypeSystem];
+    self.btnRefreshLicenseCloud.backgroundColor = [self surfaceInsetColor];
+    self.btnRefreshLicenseCloud.layer.cornerRadius = 13.0;
+    self.btnRefreshLicenseCloud.layer.borderWidth = 1.0;
+    self.btnRefreshLicenseCloud.layer.borderColor = [self borderSubtleColor].CGColor;
+    [self styleButton:self.btnRefreshLicenseCloud
+                title:@"Làm mới trạng thái Key"
+             iconType:ZTechIconCloudSync
+            tintColor:[self goldAccentColor]
                  font:[UIFont systemFontOfSize:13.5 weight:UIFontWeightBold]];
-    [btnCopyHWID.heightAnchor constraintEqualToConstant:44.0].active = YES;
-    [btnCopyHWID addTarget:self action:@selector(onTapCopyHWID) forControlEvents:UIControlEventTouchUpInside];
+    [self.btnRefreshLicenseCloud.heightAnchor constraintEqualToConstant:44.0].active = YES;
+    [self.btnRefreshLicenseCloud addTarget:self action:@selector(onTapRefreshLicenseCloud) forControlEvents:UIControlEventTouchUpInside];
 
-    [lStack addArrangedSubview:self.btnRefreshLicenseCloud];
     [lStack addArrangedSubview:btnChangeKey];
-    [lStack addArrangedSubview:btnCopyHWID];
+    [lStack addArrangedSubview:self.btnRefreshLicenseCloud];
 
     [NSLayoutConstraint activateConstraints:@[
         [lStack.topAnchor constraintEqualToAnchor:licCard.topAnchor constant:16.0],
@@ -1570,34 +1680,27 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
     [self.tabLicenseStack addArrangedSubview:licCard];
 }
 
-- (void)onTapCopyHWID {
-    @try {
-        [UIPasteboard generalPasteboard].string = [ZTechLicenseManager deviceHardwareID];
-    } @catch (NSException *e) {}
-    [self showToast:[NSString stringWithFormat:@"Đã sao chép Mã máy: %@", [ZTechLicenseManager deviceHardwareID]] isError:NO];
-}
-
 - (void)onTapRefreshLicenseCloud {
     [self styleButton:self.btnRefreshLicenseCloud
-                title:@"Đang đồng bộ với Upstash Cloud..."
+                title:@"Đang kiểm tra..."
              iconType:ZTechIconCloudSync
-            tintColor:[self darkInkColor]
-                 font:[UIFont systemFontOfSize:14.5 weight:UIFontWeightHeavy]];
+            tintColor:[self goldAccentColor]
+                 font:[UIFont systemFontOfSize:13.5 weight:UIFontWeightBold]];
     self.btnRefreshLicenseCloud.enabled = NO;
 
     [ZTechLicenseManager refreshSavedLicenseInBackgroundWithCompletion:^(BOOL isValid, NSString * _Nonnull statusText) {
         self.btnRefreshLicenseCloud.enabled = YES;
         [self styleButton:self.btnRefreshLicenseCloud
-                    title:@"Kiểm tra & Đồng bộ Bản quyền Cloud"
+                    title:@"Làm mới trạng thái Key"
                  iconType:ZTechIconCloudSync
-                tintColor:[self darkInkColor]
-                     font:[UIFont systemFontOfSize:14.5 weight:UIFontWeightHeavy]];
+                tintColor:[self goldAccentColor]
+                     font:[UIFont systemFontOfSize:13.5 weight:UIFontWeightBold]];
         [self updateLicenseUIState];
         [self showToast:statusText isError:!isValid];
     }];
 }
 
-#pragma mark - Vault & Proxy Editor Modal (Crash-Proof Keypad + 1-Tap Clipboard Paste)
+#pragma mark - Vault & Proxy Editor Modal (Clean Native Input + 1-Tap Paste)
 
 - (void)buildVaultEditorModal {
     self.vaultModalOverlay = [[UIView alloc] init];
@@ -1606,15 +1709,15 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
     self.vaultModalOverlay.hidden = YES;
     [self.view addSubview:self.vaultModalOverlay];
 
-    UIScrollView *mScroll = [[UIScrollView alloc] init];
-    mScroll.translatesAutoresizingMaskIntoConstraints = NO;
-    mScroll.alwaysBounceVertical = YES;
-    [self.vaultModalOverlay addSubview:mScroll];
+    UIControl *bgDismiss = [[UIControl alloc] init];
+    bgDismiss.translatesAutoresizingMaskIntoConstraints = NO;
+    [bgDismiss addTarget:self action:@selector(dismissAllKeyboards) forControlEvents:UIControlEventTouchUpInside];
+    [self.vaultModalOverlay addSubview:bgDismiss];
 
     UIView *box = [self createCardView];
     box.layer.borderWidth = 1.5;
     box.layer.borderColor = [self goldAccentColor].CGColor;
-    [mScroll addSubview:box];
+    [self.vaultModalOverlay addSubview:box];
 
     self.vaultModalTitleLabel = [[UILabel alloc] init];
     self.vaultModalTitleLabel.font = [UIFont systemFontOfSize:16.5 weight:UIFontWeightHeavy];
@@ -1622,85 +1725,75 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
     self.vaultModalTitleLabel.textAlignment = NSTextAlignmentCenter;
     self.vaultModalTitleLabel.numberOfLines = 0;
 
-    UILabel *hintLbl = [[UILabel alloc] init];
-    hintLbl.text = @"Hỗ trợ Proxy HTTP / SOCKS5 định dạng IP:Port hoặc IP:Port:User:Pass.\nBấm [Dán Proxy] hoặc gõ trực tiếp bên dưới:";
-    hintLbl.font = [UIFont systemFontOfSize:12.0 weight:UIFontWeightRegular];
-    hintLbl.textColor = [self mutedTextColor];
-    hintLbl.textAlignment = NSTextAlignmentCenter;
-    hintLbl.numberOfLines = 0;
+    self.vaultNameInputField = [[ZTechSafeTextField alloc] init];
+    self.vaultNameInputField.translatesAutoresizingMaskIntoConstraints = NO;
+    self.vaultNameInputField.textInsets = UIEdgeInsetsMake(0, 14, 0, 14);
+    self.vaultNameInputField.backgroundColor = [self surfaceInsetColor];
+    self.vaultNameInputField.layer.cornerRadius = 12.0;
+    self.vaultNameInputField.layer.borderWidth = 1.0;
+    self.vaultNameInputField.layer.borderColor = [self borderSubtleColor].CGColor;
+    self.vaultNameInputField.textColor = [UIColor whiteColor];
+    self.vaultNameInputField.font = [UIFont systemFontOfSize:14.0 weight:UIFontWeightBold];
+    self.vaultNameInputField.autocorrectionType = UITextAutocorrectionTypeNo;
+    self.vaultNameInputField.returnKeyType = UIReturnKeyDone;
+    self.vaultNameInputField.delegate = self;
+    self.vaultNameInputField.attributedPlaceholder = [[NSAttributedString alloc] initWithString:@"Tên gợi nhớ Acc Zalo..."
+                                                                                     attributes:@{NSForegroundColorAttributeName: [self mutedTextColor]}];
+    [self.vaultNameInputField.heightAnchor constraintEqualToConstant:46.0].active = YES;
 
-    self.vaultNameDisplayLabel = [[UILabel alloc] init];
-    self.vaultNameDisplayLabel.backgroundColor = [self surfaceInsetColor];
-    self.vaultNameDisplayLabel.layer.cornerRadius = 10.0;
-    self.vaultNameDisplayLabel.layer.masksToBounds = YES;
-    self.vaultNameDisplayLabel.layer.borderWidth = 1.0;
-    self.vaultNameDisplayLabel.layer.borderColor = [self borderSubtleColor].CGColor;
-    self.vaultNameDisplayLabel.font = [UIFont systemFontOfSize:13.5 weight:UIFontWeightBold];
-    self.vaultNameDisplayLabel.textColor = [UIColor whiteColor];
-    self.vaultNameDisplayLabel.textAlignment = NSTextAlignmentCenter;
-    [self.vaultNameDisplayLabel.heightAnchor constraintEqualToConstant:40.0].active = YES;
+    UIView *proxyFieldWrap = [[UIView alloc] init];
+    proxyFieldWrap.translatesAutoresizingMaskIntoConstraints = NO;
+    [proxyFieldWrap.heightAnchor constraintEqualToConstant:48.0].active = YES;
 
-    self.vaultProxyDisplayLabel = [[UILabel alloc] init];
-    self.vaultProxyDisplayLabel.backgroundColor = [self surfaceInsetColor];
-    self.vaultProxyDisplayLabel.layer.cornerRadius = 10.0;
-    self.vaultProxyDisplayLabel.layer.masksToBounds = YES;
-    self.vaultProxyDisplayLabel.layer.borderWidth = 1.2;
-    self.vaultProxyDisplayLabel.layer.borderColor = [self goldAccentColor].CGColor;
-    self.vaultProxyDisplayLabel.font = [UIFont monospacedSystemFontOfSize:13.0 weight:UIFontWeightBold];
-    self.vaultProxyDisplayLabel.textColor = [self emeraldColor];
-    self.vaultProxyDisplayLabel.textAlignment = NSTextAlignmentCenter;
-    self.vaultProxyDisplayLabel.adjustsFontSizeToFitWidth = YES;
-    [self.vaultProxyDisplayLabel.heightAnchor constraintEqualToConstant:42.0].active = YES;
-
-    UIStackView *quickRow = [[UIStackView alloc] init];
-    quickRow.axis = UILayoutConstraintAxisHorizontal;
-    quickRow.spacing = 6.0;
-    quickRow.distribution = UIStackViewDistributionFillEqually;
-    [quickRow.heightAnchor constraintEqualToConstant:38.0].active = YES;
-
-    self.btnVaultFieldSwitch = [UIButton buttonWithType:UIButtonTypeSystem];
-    self.btnVaultFieldSwitch.backgroundColor = [UIColor colorWithRed:0.15 green:0.14 blue:0.09 alpha:1.0];
-    self.btnVaultFieldSwitch.layer.cornerRadius = 9.0;
-    self.btnVaultFieldSwitch.layer.borderWidth = 1.0;
-    self.btnVaultFieldSwitch.layer.borderColor = [self goldAccentColor].CGColor;
-    [self styleButton:self.btnVaultFieldSwitch
-                title:@"Đổi ô gõ"
-             iconType:ZTechIconKeypadGrid
-            tintColor:[self goldAccentColor]
-                 font:[UIFont systemFontOfSize:11.5 weight:UIFontWeightBold]];
-    [self.btnVaultFieldSwitch addTarget:self action:@selector(onTapToggleVaultField) forControlEvents:UIControlEventTouchUpInside];
+    self.vaultProxyInputField = [[ZTechSafeTextField alloc] init];
+    self.vaultProxyInputField.translatesAutoresizingMaskIntoConstraints = NO;
+    self.vaultProxyInputField.textInsets = UIEdgeInsetsMake(0, 14, 0, 82);
+    self.vaultProxyInputField.backgroundColor = [self surfaceInsetColor];
+    self.vaultProxyInputField.layer.cornerRadius = 12.0;
+    self.vaultProxyInputField.layer.borderWidth = 1.2;
+    self.vaultProxyInputField.layer.borderColor = [self goldAccentColor].CGColor;
+    self.vaultProxyInputField.textColor = [self emeraldColor];
+    self.vaultProxyInputField.font = [UIFont monospacedSystemFontOfSize:13.5 weight:UIFontWeightBold];
+    self.vaultProxyInputField.autocapitalizationType = UITextAutocapitalizationTypeNone;
+    self.vaultProxyInputField.autocorrectionType = UITextAutocorrectionTypeNo;
+    self.vaultProxyInputField.keyboardType = UIKeyboardTypeURL;
+    self.vaultProxyInputField.returnKeyType = UIReturnKeyDone;
+    self.vaultProxyInputField.delegate = self;
+    self.vaultProxyInputField.attributedPlaceholder = [[NSAttributedString alloc] initWithString:@"Proxy (IP:Port:User:Pass hoặc để trống)"
+                                                                                      attributes:@{NSForegroundColorAttributeName: [self mutedTextColor]}];
+    [proxyFieldWrap addSubview:self.vaultProxyInputField];
 
     UIButton *btnPasteProxy = [UIButton buttonWithType:UIButtonTypeSystem];
-    btnPasteProxy.backgroundColor = [UIColor colorWithRed:0.10 green:0.20 blue:0.13 alpha:1.0];
-    btnPasteProxy.layer.cornerRadius = 9.0;
+    btnPasteProxy.translatesAutoresizingMaskIntoConstraints = NO;
+    btnPasteProxy.backgroundColor = [UIColor colorWithRed:0.12 green:0.22 blue:0.15 alpha:1.0];
+    btnPasteProxy.layer.cornerRadius = 8.0;
+    btnPasteProxy.layer.borderWidth = 1.0;
+    btnPasteProxy.layer.borderColor = [self emeraldColor].CGColor;
     [self styleButton:btnPasteProxy
-                title:@"Dán Proxy"
+                title:@"Dán"
              iconType:ZTechIconClipboardPaste
             tintColor:[self emeraldColor]
-                 font:[UIFont systemFontOfSize:11.5 weight:UIFontWeightBold]];
+                 font:[UIFont systemFontOfSize:12.0 weight:UIFontWeightBold]];
     [btnPasteProxy addTarget:self action:@selector(onTapPasteProxyFromClipboard) forControlEvents:UIControlEventTouchUpInside];
+    [proxyFieldWrap addSubview:btnPasteProxy];
 
-    UIButton *btnClearProxy = [UIButton buttonWithType:UIButtonTypeSystem];
-    btnClearProxy.backgroundColor = [UIColor colorWithRed:0.20 green:0.10 blue:0.10 alpha:1.0];
-    btnClearProxy.layer.cornerRadius = 9.0;
-    [self styleButton:btnClearProxy
-                title:@"Xoá Proxy"
-             iconType:ZTechIconTrashDelete
-            tintColor:[UIColor colorWithRed:1.0 green:0.65 blue:0.65 alpha:1.0]
-                 font:[UIFont systemFontOfSize:11.5 weight:UIFontWeightBold]];
-    [btnClearProxy addTarget:self action:@selector(onTapClearModalProxy) forControlEvents:UIControlEventTouchUpInside];
+    [NSLayoutConstraint activateConstraints:@[
+        [self.vaultProxyInputField.topAnchor constraintEqualToAnchor:proxyFieldWrap.topAnchor],
+        [self.vaultProxyInputField.leadingAnchor constraintEqualToAnchor:proxyFieldWrap.leadingAnchor],
+        [self.vaultProxyInputField.trailingAnchor constraintEqualToAnchor:proxyFieldWrap.trailingAnchor],
+        [self.vaultProxyInputField.bottomAnchor constraintEqualToAnchor:proxyFieldWrap.bottomAnchor],
 
-    [quickRow addArrangedSubview:self.btnVaultFieldSwitch];
-    [quickRow addArrangedSubview:btnPasteProxy];
-    [quickRow addArrangedSubview:btnClearProxy];
-
-    UIView *proxyKeypad = [self createVaultProxyKeypadView];
+        [btnPasteProxy.centerYAnchor constraintEqualToAnchor:proxyFieldWrap.centerYAnchor],
+        [btnPasteProxy.trailingAnchor constraintEqualToAnchor:proxyFieldWrap.trailingAnchor constant:-7.0],
+        [btnPasteProxy.widthAnchor constraintEqualToConstant:66.0],
+        [btnPasteProxy.heightAnchor constraintEqualToConstant:34.0]
+    ]];
 
     UIStackView *bottomRow = [[UIStackView alloc] init];
     bottomRow.axis = UILayoutConstraintAxisHorizontal;
     bottomRow.spacing = 10.0;
     bottomRow.distribution = UIStackViewDistributionFillProportionally;
-    [bottomRow.heightAnchor constraintEqualToConstant:46.0].active = YES;
+    [bottomRow.heightAnchor constraintEqualToConstant:48.0].active = YES;
 
     UIButton *btnCancel = [UIButton buttonWithType:UIButtonTypeSystem];
     btnCancel.backgroundColor = [UIColor colorWithRed:0.16 green:0.16 blue:0.16 alpha:1.0];
@@ -1715,7 +1808,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
     self.btnVaultSaveConfirm.backgroundColor = [self creamPrimaryColor];
     self.btnVaultSaveConfirm.layer.cornerRadius = 12.0;
     [self styleButton:self.btnVaultSaveConfirm
-                title:@"Lưu Acc & Proxy vào Kho"
+                title:@"Xác nhận Lưu"
              iconType:ZTechIconShieldCheck
             tintColor:[self darkInkColor]
                  font:[UIFont systemFontOfSize:14.5 weight:UIFontWeightHeavy]];
@@ -1726,164 +1819,44 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
 
     UIStackView *mStack = [[UIStackView alloc] initWithArrangedSubviews:@[
         self.vaultModalTitleLabel,
-        hintLbl,
-        self.vaultNameDisplayLabel,
-        self.vaultProxyDisplayLabel,
-        quickRow,
-        proxyKeypad,
+        self.vaultNameInputField,
+        proxyFieldWrap,
         bottomRow
     ]];
     mStack.translatesAutoresizingMaskIntoConstraints = NO;
     mStack.axis = UILayoutConstraintAxisVertical;
-    mStack.spacing = 9.0;
+    mStack.spacing = 12.0;
     [box addSubview:mStack];
 
-    UILayoutGuide *safe = self.view.safeAreaLayoutGuide;
     [NSLayoutConstraint activateConstraints:@[
         [self.vaultModalOverlay.topAnchor constraintEqualToAnchor:self.view.topAnchor],
         [self.vaultModalOverlay.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
         [self.vaultModalOverlay.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
         [self.vaultModalOverlay.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],
 
-        [mScroll.topAnchor constraintEqualToAnchor:safe.topAnchor],
-        [mScroll.leadingAnchor constraintEqualToAnchor:self.vaultModalOverlay.leadingAnchor],
-        [mScroll.trailingAnchor constraintEqualToAnchor:self.vaultModalOverlay.trailingAnchor],
-        [mScroll.bottomAnchor constraintEqualToAnchor:self.vaultModalOverlay.bottomAnchor],
+        [bgDismiss.topAnchor constraintEqualToAnchor:self.vaultModalOverlay.topAnchor],
+        [bgDismiss.leadingAnchor constraintEqualToAnchor:self.vaultModalOverlay.leadingAnchor],
+        [bgDismiss.trailingAnchor constraintEqualToAnchor:self.vaultModalOverlay.trailingAnchor],
+        [bgDismiss.bottomAnchor constraintEqualToAnchor:self.vaultModalOverlay.bottomAnchor],
 
-        [box.topAnchor constraintEqualToAnchor:mScroll.topAnchor constant:16.0],
-        [box.leadingAnchor constraintEqualToAnchor:mScroll.leadingAnchor constant:14.0],
-        [box.trailingAnchor constraintEqualToAnchor:mScroll.trailingAnchor constant:-14.0],
-        [box.bottomAnchor constraintEqualToAnchor:mScroll.bottomAnchor constant:-20.0],
-        [box.widthAnchor constraintEqualToAnchor:mScroll.widthAnchor constant:-28.0],
+        [box.centerYAnchor constraintEqualToAnchor:self.vaultModalOverlay.centerYAnchor constant:-40.0],
+        [box.leadingAnchor constraintEqualToAnchor:self.vaultModalOverlay.leadingAnchor constant:18.0],
+        [box.trailingAnchor constraintEqualToAnchor:self.vaultModalOverlay.trailingAnchor constant:-18.0],
 
-        [mStack.topAnchor constraintEqualToAnchor:box.topAnchor constant:14.0],
-        [mStack.leadingAnchor constraintEqualToAnchor:box.leadingAnchor constant:12.0],
-        [mStack.trailingAnchor constraintEqualToAnchor:box.trailingAnchor constant:-12.0],
-        [mStack.bottomAnchor constraintEqualToAnchor:box.bottomAnchor constant:-14.0]
+        [mStack.topAnchor constraintEqualToAnchor:box.topAnchor constant:18.0],
+        [mStack.leadingAnchor constraintEqualToAnchor:box.leadingAnchor constant:16.0],
+        [mStack.trailingAnchor constraintEqualToAnchor:box.trailingAnchor constant:-16.0],
+        [mStack.bottomAnchor constraintEqualToAnchor:box.bottomAnchor constant:-18.0]
     ]];
-}
-
-- (UIView *)createVaultProxyKeypadView {
-    UIView *container = [[UIView alloc] init];
-    container.translatesAutoresizingMaskIntoConstraints = NO;
-
-    UIStackView *rowsStack = [[UIStackView alloc] init];
-    rowsStack.translatesAutoresizingMaskIntoConstraints = NO;
-    rowsStack.axis = UILayoutConstraintAxisVertical;
-    rowsStack.spacing = 5.0;
-    [container addSubview:rowsStack];
-
-    NSArray<NSArray<NSString *> *> *keyRows = @[
-        @[@"1", @"2", @"3", @"4", @"5", @"6", @"7", @"8", @"9", @"0"],
-        @[@".", @":", @"@", @"-", @"_", @"socks5://", @"http://", @"⌫", @"XOÁ"],
-        @[@"q", @"w", @"e", @"r", @"t", @"y", @"u", @"i", @"o", @"p"],
-        @[@"a", @"s", @"d", @"f", @"g", @"h", @"j", @"k", @"l", @" "],
-        @[@"z", @"x", @"c", @"v", @"b", @"n", @"m", @"Acc ", @"VIP ", @"Zalo "]
-    ];
-
-    for (NSArray<NSString *> *rowKeys in keyRows) {
-        UIStackView *rStack = [[UIStackView alloc] init];
-        rStack.axis = UILayoutConstraintAxisHorizontal;
-        rStack.distribution = UIStackViewDistributionFillEqually;
-        rStack.spacing = 4.0;
-        [rStack.heightAnchor constraintEqualToConstant:34.0].active = YES;
-
-        for (NSString *kTitle in rowKeys) {
-            UIButton *b = [UIButton buttonWithType:UIButtonTypeSystem];
-            b.backgroundColor = [UIColor colorWithRed:0.13 green:0.15 blue:0.13 alpha:1.0];
-            b.layer.cornerRadius = 6.0;
-            b.layer.borderWidth = 1.0;
-            b.layer.borderColor = [self borderSubtleColor].CGColor;
-            [b setTitle:([kTitle isEqualToString:@" "] ? @"Cách" : kTitle) forState:UIControlStateNormal];
-            b.accessibilityLabel = kTitle;
-            [b setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-            b.titleLabel.font = [UIFont systemFontOfSize:12.0 weight:UIFontWeightBold];
-            b.titleLabel.adjustsFontSizeToFitWidth = YES;
-            [b addTarget:self action:@selector(onTapVaultKeypadButton:) forControlEvents:UIControlEventTouchUpInside];
-            [rStack addArrangedSubview:b];
-        }
-        [rowsStack addArrangedSubview:rStack];
-    }
-
-    [NSLayoutConstraint activateConstraints:@[
-        [rowsStack.topAnchor constraintEqualToAnchor:container.topAnchor],
-        [rowsStack.leadingAnchor constraintEqualToAnchor:container.leadingAnchor],
-        [rowsStack.trailingAnchor constraintEqualToAnchor:container.trailingAnchor],
-        [rowsStack.bottomAnchor constraintEqualToAnchor:container.bottomAnchor]
-    ]];
-
-    return container;
-}
-
-- (void)refreshVaultModalLabels {
-    self.vaultNameDisplayLabel.text = [NSString stringWithFormat:@"Tên Acc: %@",
-        (self.modalNameBuffer.length > 0 ? self.modalNameBuffer : @"(Tự động đặt tên)")];
-    self.vaultProxyDisplayLabel.text = [NSString stringWithFormat:@"Proxy: %@",
-        (self.modalProxyBuffer.length > 0 ? self.modalProxyBuffer : @"Không dùng Proxy (Mạng gốc / 4G)")];
-
-    if (self.isEditingProxyField) {
-        self.vaultProxyDisplayLabel.layer.borderColor = [self goldAccentColor].CGColor;
-        self.vaultNameDisplayLabel.layer.borderColor = [self borderSubtleColor].CGColor;
-        [self styleButton:self.btnVaultFieldSwitch
-                    title:@"Gõ: PROXY"
-                 iconType:ZTechIconKeypadGrid
-                tintColor:[self goldAccentColor]
-                     font:[UIFont systemFontOfSize:11.5 weight:UIFontWeightBold]];
-    } else {
-        self.vaultNameDisplayLabel.layer.borderColor = [self goldAccentColor].CGColor;
-        self.vaultProxyDisplayLabel.layer.borderColor = [self borderSubtleColor].CGColor;
-        [self styleButton:self.btnVaultFieldSwitch
-                    title:@"Gõ: TÊN ACC"
-                 iconType:ZTechIconKeypadGrid
-                tintColor:[self goldAccentColor]
-                     font:[UIFont systemFontOfSize:11.5 weight:UIFontWeightBold]];
-    }
-}
-
-- (void)onTapToggleVaultField {
-    self.isEditingProxyField = !self.isEditingProxyField;
-    [self refreshVaultModalLabels];
 }
 
 - (void)onTapPasteProxyFromClipboard {
-    @try {
-        NSString *clip = [UIPasteboard generalPasteboard].string;
-        if (clip && clip.length > 0) {
-            NSString *trimmed = [clip stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-            if (trimmed.length > 0) {
-                self.modalProxyBuffer = trimmed;
-                self.isEditingProxyField = YES;
-                [self refreshVaultModalLabels];
-            }
-        }
-    } @catch (NSException *e) {}
-}
-
-- (void)onTapClearModalProxy {
-    self.modalProxyBuffer = @"";
-    [self refreshVaultModalLabels];
-}
-
-- (void)onTapVaultKeypadButton:(UIButton *)sender {
-    NSString *key = sender.accessibilityLabel ?: [sender titleForState:UIControlStateNormal] ?: @"";
-    NSString *current = self.isEditingProxyField ? (self.modalProxyBuffer ?: @"") : (self.modalNameBuffer ?: @"");
-
-    if ([key isEqualToString:@"XOÁ"]) {
-        current = @"";
-    } else if ([key isEqualToString:@"⌫"]) {
-        if (current.length > 0) {
-            current = [current substringToIndex:current.length - 1];
-        }
+    NSString *clip = ZTechReadClipboardSafely();
+    if (clip.length > 0) {
+        self.vaultProxyInputField.text = clip;
     } else {
-        current = [current stringByAppendingString:key];
+        [self showToast:@"Bộ nhớ tạm đang trống!" isError:YES];
     }
-
-    if (self.isEditingProxyField) {
-        self.modalProxyBuffer = current;
-    } else {
-        self.modalNameBuffer = current;
-    }
-    [self refreshVaultModalLabels];
 }
 
 - (void)onTapOpenSaveVaultModal {
@@ -1894,16 +1867,15 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
     NSUInteger nextNum = [ZTechVaultManager listSavedAccounts].count + 1;
     self.isSavingNewVaultAccount = YES;
     self.editingVaultAccountId = nil;
-    self.isEditingProxyField = YES;
-    self.modalNameBuffer = [NSString stringWithFormat:@"Acc Zalo #%lu (%@)", (unsigned long)nextNum, self.currentProfile.modelName ?: @"iPhone 16"];
-    self.modalProxyBuffer = self.currentProfile.activeProxy ?: @"";
-    self.vaultModalTitleLabel.text = @"LƯU ACC ZALO HIỆN TẠI VÀO KHO";
+    self.vaultNameInputField.hidden = NO;
+    self.vaultNameInputField.text = [NSString stringWithFormat:@"Acc Zalo #%lu (%@)", (unsigned long)nextNum, self.currentProfile.modelName ?: @"iPhone 16"];
+    self.vaultProxyInputField.text = self.currentProfile.activeProxy ?: @"";
+    self.vaultModalTitleLabel.text = @"LƯU ACC ZALO VÀO KHO";
     [self styleButton:self.btnVaultSaveConfirm
-                title:@"Lưu Acc & Proxy vào Kho"
+                title:@"Lưu vào Kho"
              iconType:ZTechIconShieldCheck
             tintColor:[self darkInkColor]
                  font:[UIFont systemFontOfSize:14.5 weight:UIFontWeightHeavy]];
-    [self refreshVaultModalLabels];
     self.vaultModalOverlay.hidden = NO;
 }
 
@@ -1914,16 +1886,15 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
     }
     self.isSavingNewVaultAccount = NO;
     self.editingVaultAccountId = @"__CURRENT_SESSION__";
-    self.isEditingProxyField = YES;
-    self.modalNameBuffer = @"Phiên Zalo hiện tại";
-    self.modalProxyBuffer = self.currentProfile.activeProxy ?: @"";
-    self.vaultModalTitleLabel.text = @"CÀI ĐẶT PROXY CHO PHIÊN HIỆN TẠI";
+    self.vaultNameInputField.hidden = YES;
+    self.vaultNameInputField.text = @"Phiên Zalo hiện tại";
+    self.vaultProxyInputField.text = self.currentProfile.activeProxy ?: @"";
+    self.vaultModalTitleLabel.text = @"GẮN PROXY CHO PHIÊN HIỆN TẠI";
     [self styleButton:self.btnVaultSaveConfirm
-                title:@"Áp dụng Proxy ngay"
+                title:@"Xác nhận Proxy"
              iconType:ZTechIconShieldCheck
             tintColor:[self darkInkColor]
                  font:[UIFont systemFontOfSize:14.5 weight:UIFontWeightHeavy]];
-    [self refreshVaultModalLabels];
     self.vaultModalOverlay.hidden = NO;
 }
 
@@ -1933,30 +1904,34 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
     ZTechVaultAccount *acc = self.vaultAccounts[idx];
     self.isSavingNewVaultAccount = NO;
     self.editingVaultAccountId = acc.accountId;
-    self.isEditingProxyField = YES;
-    self.modalNameBuffer = acc.title ?: @"";
-    self.modalProxyBuffer = acc.proxyString ?: @"";
-    self.vaultModalTitleLabel.text = [NSString stringWithFormat:@"SỬA PROXY & TÊN: %@", acc.title];
+    self.vaultNameInputField.hidden = NO;
+    self.vaultNameInputField.text = acc.title ?: @"";
+    self.vaultProxyInputField.text = acc.proxyString ?: @"";
+    self.vaultModalTitleLabel.text = @"SỬA TÊN ACC & PROXY";
     [self styleButton:self.btnVaultSaveConfirm
-                title:@"Lưu thay đổi Proxy & Tên"
+                title:@"Lưu thay đổi"
              iconType:ZTechIconShieldCheck
             tintColor:[self darkInkColor]
                  font:[UIFont systemFontOfSize:14.5 weight:UIFontWeightHeavy]];
-    [self refreshVaultModalLabels];
     self.vaultModalOverlay.hidden = NO;
 }
 
 - (void)onTapCloseVaultModal {
+    [self dismissAllKeyboards];
     self.vaultModalOverlay.hidden = YES;
 }
 
 - (void)onTapConfirmVaultModal {
+    [self dismissAllKeyboards];
     self.vaultModalOverlay.hidden = YES;
+
+    NSString *nameText = [self.vaultNameInputField.text ?: @"" stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    NSString *proxyText = [self.vaultProxyInputField.text ?: @"" stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
 
     if (self.isSavingNewVaultAccount) {
         NSError *err = nil;
-        ZTechVaultAccount *saved = [ZTechVaultManager saveCurrentZaloSessionWithTitle:self.modalNameBuffer
-                                                                                proxy:self.modalProxyBuffer
+        ZTechVaultAccount *saved = [ZTechVaultManager saveCurrentZaloSessionWithTitle:nameText
+                                                                                proxy:proxyText
                                                                               profile:self.currentProfile
                                                                                 error:&err];
         if (saved) {
@@ -1967,7 +1942,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
             [self showToast:(err.localizedDescription ?: @"Lỗi khi lưu Acc vào Kho.") isError:YES];
         }
     } else if ([self.editingVaultAccountId isEqualToString:@"__CURRENT_SESSION__"]) {
-        self.currentProfile.activeProxy = [self.modalProxyBuffer stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+        self.currentProfile.activeProxy = proxyText;
         [ZTechDeviceDatabase writeProfileFiles:self.currentProfile error:nil];
         [[NSUserDefaults standardUserDefaults] setObject:[self.currentProfile toDictionary] forKey:@"ZTechCurrentProfile"];
         [[NSUserDefaults standardUserDefaults] synchronize];
@@ -1978,8 +1953,8 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
             : @"Đã tắt Proxy — Đang dùng mạng gốc / 4G.") isError:NO];
     } else if (self.editingVaultAccountId.length > 0) {
         [ZTechVaultManager updateAccount:self.editingVaultAccountId
-                                   title:self.modalNameBuffer
-                             proxyString:self.modalProxyBuffer];
+                                   title:nameText
+                             proxyString:proxyText];
         self.currentProfile = [ZTechDeviceDatabase loadOrCreateDefaultProfile];
         [self refreshUIWithCurrentProfile];
         [self reloadVaultListUI];
@@ -2034,7 +2009,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
     }
 }
 
-#pragma mark - Lock Screen Overlay (Key Activation Modal)
+#pragma mark - Minimalist Key Input Overlay (Only Key Input Box + Confirm Button)
 
 - (void)buildLockScreenOverlay {
     self.lockOverlayView = [[UIView alloc] init];
@@ -2042,236 +2017,161 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
     self.lockOverlayView.backgroundColor = [UIColor colorWithRed:0.03 green:0.04 blue:0.03 alpha:0.98];
     [self.view addSubview:self.lockOverlayView];
 
-    UIScrollView *lockScroll = [[UIScrollView alloc] init];
-    lockScroll.translatesAutoresizingMaskIntoConstraints = NO;
-    lockScroll.alwaysBounceVertical = YES;
-    [self.lockOverlayView addSubview:lockScroll];
+    UIControl *bgDismiss = [[UIControl alloc] init];
+    bgDismiss.translatesAutoresizingMaskIntoConstraints = NO;
+    [bgDismiss addTarget:self action:@selector(dismissAllKeyboards) forControlEvents:UIControlEventTouchUpInside];
+    [self.lockOverlayView addSubview:bgDismiss];
 
     UIView *box = [self createCardView];
     box.layer.borderWidth = 1.5;
     box.layer.borderColor = [self goldAccentColor].CGColor;
-    [lockScroll addSubview:box];
+    [self.lockOverlayView addSubview:box];
 
     UILabel *lockTitle = [[UILabel alloc] init];
-    lockTitle.text = @"XÁC THỰC BẢN QUYỀN THIẾT BỊ";
-    lockTitle.font = [UIFont systemFontOfSize:18.0 weight:UIFontWeightHeavy];
+    lockTitle.text = @"NHẬP KEY BẢN QUYỀN";
+    lockTitle.font = [UIFont systemFontOfSize:17.5 weight:UIFontWeightHeavy];
     lockTitle.textColor = [self goldAccentColor];
     lockTitle.textAlignment = NSTextAlignmentCenter;
 
-    UILabel *lockSub = [[UILabel alloc] init];
-    lockSub.text = @"Cách 1: Gửi Mã máy dưới đây cho Admin duyệt trên Web rồi bấm nút Kích hoạt.\nCách 2: Bấm mở bàn phím Key bên dưới để gõ mã Key.";
-    lockSub.font = [UIFont systemFontOfSize:12.5 weight:UIFontWeightRegular];
-    lockSub.textColor = [self mutedTextColor];
-    lockSub.textAlignment = NSTextAlignmentCenter;
-    lockSub.numberOfLines = 0;
+    // Key Input Field with integrated 1-Tap [Dán] button right inside
+    UIView *keyFieldWrapper = [[UIView alloc] init];
+    keyFieldWrapper.translatesAutoresizingMaskIntoConstraints = NO;
+    [keyFieldWrapper.heightAnchor constraintEqualToConstant:52.0].active = YES;
 
-    UIView *hwidBox = [[UIView alloc] init];
-    hwidBox.translatesAutoresizingMaskIntoConstraints = NO;
-    hwidBox.backgroundColor = [self surfaceInsetColor];
-    hwidBox.layer.cornerRadius = 12.0;
-    hwidBox.layer.borderWidth = 1.0;
-    hwidBox.layer.borderColor = [self borderSubtleColor].CGColor;
+    self.keyInputField = [[ZTechSafeTextField alloc] init];
+    self.keyInputField.translatesAutoresizingMaskIntoConstraints = NO;
+    self.keyInputField.textInsets = UIEdgeInsetsMake(0, 14, 0, 82);
+    self.keyInputField.backgroundColor = [self surfaceInsetColor];
+    self.keyInputField.layer.cornerRadius = 13.0;
+    self.keyInputField.layer.borderWidth = 1.2;
+    self.keyInputField.layer.borderColor = [self goldAccentColor].CGColor;
+    self.keyInputField.textColor = [UIColor whiteColor];
+    self.keyInputField.font = [UIFont monospacedSystemFontOfSize:15.5 weight:UIFontWeightBold];
+    self.keyInputField.autocapitalizationType = UITextAutocapitalizationTypeAllCharacters;
+    self.keyInputField.autocorrectionType = UITextAutocorrectionTypeNo;
+    self.keyInputField.keyboardType = UIKeyboardTypeASCIICapable;
+    self.keyInputField.returnKeyType = UIReturnKeyDone;
+    self.keyInputField.delegate = self;
+    self.keyInputField.attributedPlaceholder = [[NSAttributedString alloc] initWithString:@"Nhập hoặc dán mã Key..."
+                                                                               attributes:@{NSForegroundColorAttributeName: [self mutedTextColor]}];
+    NSString *savedKey = [ZTechLicenseManager savedLicenseKey];
+    if (savedKey.length > 0) {
+        self.keyInputField.text = savedKey;
+    }
+    [keyFieldWrapper addSubview:self.keyInputField];
 
-    UILabel *hwidBigLabel = [[UILabel alloc] init];
-    hwidBigLabel.translatesAutoresizingMaskIntoConstraints = NO;
-    hwidBigLabel.text = [NSString stringWithFormat:@"Mã máy: %@", [ZTechLicenseManager deviceHardwareID]];
-    hwidBigLabel.font = [UIFont monospacedSystemFontOfSize:18.0 weight:UIFontWeightHeavy];
-    hwidBigLabel.textColor = [UIColor whiteColor];
-    hwidBigLabel.textAlignment = NSTextAlignmentCenter;
-    [hwidBox addSubview:hwidBigLabel];
-
-    UIView *keyDisplayBox = [[UIView alloc] init];
-    keyDisplayBox.translatesAutoresizingMaskIntoConstraints = NO;
-    keyDisplayBox.backgroundColor = [self surfaceInsetColor];
-    keyDisplayBox.layer.cornerRadius = 12.0;
-    keyDisplayBox.layer.borderWidth = 1.0;
-    keyDisplayBox.layer.borderColor = [self goldAccentColor].CGColor;
-
-    self.keyDisplayLabel = [[UILabel alloc] init];
-    self.keyDisplayLabel.translatesAutoresizingMaskIntoConstraints = NO;
-    self.keyDisplayLabel.font = [UIFont monospacedSystemFontOfSize:14.5 weight:UIFontWeightBold];
-    self.keyDisplayLabel.textAlignment = NSTextAlignmentCenter;
-    self.keyDisplayLabel.adjustsFontSizeToFitWidth = YES;
-    self.keyDisplayLabel.minimumScaleFactor = 0.7;
-    [keyDisplayBox addSubview:self.keyDisplayLabel];
-    [self refreshKeyDisplayLabel];
-
-    self.btnToggleKeypad = [UIButton buttonWithType:UIButtonTypeSystem];
-    self.btnToggleKeypad.backgroundColor = [UIColor colorWithRed:0.15 green:0.14 blue:0.09 alpha:1.0];
-    self.btnToggleKeypad.layer.cornerRadius = 10.0;
-    self.btnToggleKeypad.layer.borderWidth = 1.0;
-    self.btnToggleKeypad.layer.borderColor = [self goldAccentColor].CGColor;
-    [self styleButton:self.btnToggleKeypad
-                title:@"Gõ mã Key bằng bàn phím trong App"
-             iconType:ZTechIconKeypadGrid
+    UIButton *btnPasteInline = [UIButton buttonWithType:UIButtonTypeSystem];
+    btnPasteInline.translatesAutoresizingMaskIntoConstraints = NO;
+    btnPasteInline.backgroundColor = [UIColor colorWithRed:0.15 green:0.14 blue:0.09 alpha:1.0];
+    btnPasteInline.layer.cornerRadius = 9.0;
+    btnPasteInline.layer.borderWidth = 1.0;
+    btnPasteInline.layer.borderColor = [self goldAccentColor].CGColor;
+    [self styleButton:btnPasteInline
+                title:@"Dán"
+             iconType:ZTechIconClipboardPaste
             tintColor:[self goldAccentColor]
-                 font:[UIFont systemFontOfSize:13.0 weight:UIFontWeightBold]];
-    [self.btnToggleKeypad addTarget:self action:@selector(onTapToggleKeypad) forControlEvents:UIControlEventTouchUpInside];
+                 font:[UIFont systemFontOfSize:12.5 weight:UIFontWeightBold]];
+    [btnPasteInline addTarget:self action:@selector(onTapPasteKeyInline) forControlEvents:UIControlEventTouchUpInside];
+    [keyFieldWrapper addSubview:btnPasteInline];
 
-    self.keypadContainerView = [self createInAppKeypadView];
-    self.keypadContainerView.hidden = YES;
+    [NSLayoutConstraint activateConstraints:@[
+        [self.keyInputField.topAnchor constraintEqualToAnchor:keyFieldWrapper.topAnchor],
+        [self.keyInputField.leadingAnchor constraintEqualToAnchor:keyFieldWrapper.leadingAnchor],
+        [self.keyInputField.trailingAnchor constraintEqualToAnchor:keyFieldWrapper.trailingAnchor],
+        [self.keyInputField.bottomAnchor constraintEqualToAnchor:keyFieldWrapper.bottomAnchor],
+
+        [btnPasteInline.centerYAnchor constraintEqualToAnchor:keyFieldWrapper.centerYAnchor],
+        [btnPasteInline.trailingAnchor constraintEqualToAnchor:keyFieldWrapper.trailingAnchor constant:-7.0],
+        [btnPasteInline.widthAnchor constraintEqualToConstant:68.0],
+        [btnPasteInline.heightAnchor constraintEqualToConstant:36.0]
+    ]];
 
     self.lockStatusMsgLabel = [[UILabel alloc] init];
-    self.lockStatusMsgLabel.text = @"Đang kiểm tra trạng thái bản quyền trên Upstash...";
-    self.lockStatusMsgLabel.font = [UIFont systemFontOfSize:13.0 weight:UIFontWeightMedium];
-    self.lockStatusMsgLabel.textColor = [self goldAccentColor];
+    self.lockStatusMsgLabel.font = [UIFont systemFontOfSize:13.0 weight:UIFontWeightSemibold];
+    self.lockStatusMsgLabel.textColor = [self dangerCoralColor];
     self.lockStatusMsgLabel.textAlignment = NSTextAlignmentCenter;
     self.lockStatusMsgLabel.numberOfLines = 0;
+    self.lockStatusMsgLabel.hidden = YES;
 
     self.btnActivateKey = [UIButton buttonWithType:UIButtonTypeSystem];
     self.btnActivateKey.backgroundColor = [self creamPrimaryColor];
     self.btnActivateKey.layer.cornerRadius = 13.0;
     [self styleButton:self.btnActivateKey
-                title:@"Kích hoạt Bản quyền (Tự nhận Mã máy / Key)"
+                title:@"Xác nhận"
              iconType:ZTechIconShieldCheck
             tintColor:[self darkInkColor]
-                 font:[UIFont systemFontOfSize:14.5 weight:UIFontWeightHeavy]];
+                 font:[UIFont systemFontOfSize:15.5 weight:UIFontWeightHeavy]];
+    [self.btnActivateKey.heightAnchor constraintEqualToConstant:50.0].active = YES;
     [self.btnActivateKey addTarget:self action:@selector(onTapActivateKey) forControlEvents:UIControlEventTouchUpInside];
 
     self.btnCloseKeyOverlay = [UIButton buttonWithType:UIButtonTypeSystem];
     self.btnCloseKeyOverlay.backgroundColor = [UIColor colorWithRed:0.15 green:0.16 blue:0.15 alpha:1.0];
     self.btnCloseKeyOverlay.layer.cornerRadius = 11.0;
-    [self.btnCloseKeyOverlay setTitle:@"Quay lại ứng dụng" forState:UIControlStateNormal];
+    [self.btnCloseKeyOverlay setTitle:@"Đóng" forState:UIControlStateNormal];
     [self.btnCloseKeyOverlay setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
     self.btnCloseKeyOverlay.titleLabel.font = [UIFont systemFontOfSize:13.5 weight:UIFontWeightBold];
-    [self.btnCloseKeyOverlay.heightAnchor constraintEqualToConstant:42.0].active = YES;
+    [self.btnCloseKeyOverlay.heightAnchor constraintEqualToConstant:40.0].active = YES;
+    self.btnCloseKeyOverlay.hidden = YES;
     [self.btnCloseKeyOverlay addTarget:self action:@selector(onTapCloseKeyOverlay) forControlEvents:UIControlEventTouchUpInside];
 
     UIStackView *boxStack = [[UIStackView alloc] initWithArrangedSubviews:@[
         lockTitle,
-        lockSub,
-        hwidBox,
-        keyDisplayBox,
-        self.btnToggleKeypad,
-        self.keypadContainerView,
+        keyFieldWrapper,
         self.lockStatusMsgLabel,
         self.btnActivateKey,
         self.btnCloseKeyOverlay
     ]];
     boxStack.translatesAutoresizingMaskIntoConstraints = NO;
     boxStack.axis = UILayoutConstraintAxisVertical;
-    boxStack.spacing = 11.0;
+    boxStack.spacing = 14.0;
     [box addSubview:boxStack];
 
-    UILayoutGuide *safe = self.view.safeAreaLayoutGuide;
     [NSLayoutConstraint activateConstraints:@[
         [self.lockOverlayView.topAnchor constraintEqualToAnchor:self.view.topAnchor],
         [self.lockOverlayView.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
         [self.lockOverlayView.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
         [self.lockOverlayView.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],
 
-        [lockScroll.topAnchor constraintEqualToAnchor:safe.topAnchor],
-        [lockScroll.leadingAnchor constraintEqualToAnchor:self.lockOverlayView.leadingAnchor],
-        [lockScroll.trailingAnchor constraintEqualToAnchor:self.lockOverlayView.trailingAnchor],
-        [lockScroll.bottomAnchor constraintEqualToAnchor:self.lockOverlayView.bottomAnchor],
+        [bgDismiss.topAnchor constraintEqualToAnchor:self.lockOverlayView.topAnchor],
+        [bgDismiss.leadingAnchor constraintEqualToAnchor:self.lockOverlayView.leadingAnchor],
+        [bgDismiss.trailingAnchor constraintEqualToAnchor:self.lockOverlayView.trailingAnchor],
+        [bgDismiss.bottomAnchor constraintEqualToAnchor:self.lockOverlayView.bottomAnchor],
 
-        [box.topAnchor constraintEqualToAnchor:lockScroll.topAnchor constant:24.0],
-        [box.leadingAnchor constraintEqualToAnchor:lockScroll.leadingAnchor constant:16.0],
-        [box.trailingAnchor constraintEqualToAnchor:lockScroll.trailingAnchor constant:-16.0],
-        [box.bottomAnchor constraintEqualToAnchor:lockScroll.bottomAnchor constant:-24.0],
-        [box.widthAnchor constraintEqualToAnchor:lockScroll.widthAnchor constant:-32.0],
+        [box.centerYAnchor constraintEqualToAnchor:self.lockOverlayView.centerYAnchor constant:-36.0],
+        [box.leadingAnchor constraintEqualToAnchor:self.lockOverlayView.leadingAnchor constant:20.0],
+        [box.trailingAnchor constraintEqualToAnchor:self.lockOverlayView.trailingAnchor constant:-20.0],
 
-        [boxStack.topAnchor constraintEqualToAnchor:box.topAnchor constant:18.0],
-        [boxStack.leadingAnchor constraintEqualToAnchor:box.leadingAnchor constant:14.0],
-        [boxStack.trailingAnchor constraintEqualToAnchor:box.trailingAnchor constant:-14.0],
-        [boxStack.bottomAnchor constraintEqualToAnchor:box.bottomAnchor constant:-18.0],
-
-        [hwidBox.heightAnchor constraintEqualToConstant:46.0],
-        [hwidBigLabel.centerXAnchor constraintEqualToAnchor:hwidBox.centerXAnchor],
-        [hwidBigLabel.centerYAnchor constraintEqualToAnchor:hwidBox.centerYAnchor],
-
-        [keyDisplayBox.heightAnchor constraintEqualToConstant:46.0],
-        [self.keyDisplayLabel.leadingAnchor constraintEqualToAnchor:keyDisplayBox.leadingAnchor constant:10.0],
-        [self.keyDisplayLabel.trailingAnchor constraintEqualToAnchor:keyDisplayBox.trailingAnchor constant:-10.0],
-        [self.keyDisplayLabel.centerYAnchor constraintEqualToAnchor:keyDisplayBox.centerYAnchor],
-
-        [self.btnToggleKeypad.heightAnchor constraintEqualToConstant:40.0],
-        [self.btnActivateKey.heightAnchor constraintEqualToConstant:48.0]
+        [boxStack.topAnchor constraintEqualToAnchor:box.topAnchor constant:22.0],
+        [boxStack.leadingAnchor constraintEqualToAnchor:box.leadingAnchor constant:18.0],
+        [boxStack.trailingAnchor constraintEqualToAnchor:box.trailingAnchor constant:-18.0],
+        [boxStack.bottomAnchor constraintEqualToAnchor:box.bottomAnchor constant:-22.0]
     ]];
 }
 
-- (UIView *)createInAppKeypadView {
-    UIView *container = [[UIView alloc] init];
-    container.translatesAutoresizingMaskIntoConstraints = NO;
-
-    UIStackView *rowsStack = [[UIStackView alloc] init];
-    rowsStack.translatesAutoresizingMaskIntoConstraints = NO;
-    rowsStack.axis = UILayoutConstraintAxisVertical;
-    rowsStack.spacing = 6.0;
-    [container addSubview:rowsStack];
-
-    NSArray<NSArray<NSString *> *> *keyRows = @[
-        @[@"1", @"2", @"3", @"4", @"5", @"6", @"7", @"8", @"9", @"0"],
-        @[@"Q", @"W", @"E", @"R", @"T", @"Y", @"U", @"I", @"O", @"P"],
-        @[@"A", @"S", @"D", @"F", @"G", @"H", @"J", @"K", @"L", @"-"],
-        @[@"GT-", @"Z", @"X", @"C", @"V", @"B", @"N", @"M", @"⌫", @"XOÁ"]
-    ];
-
-    for (NSArray<NSString *> *rowKeys in keyRows) {
-        UIStackView *rStack = [[UIStackView alloc] init];
-        rStack.axis = UILayoutConstraintAxisHorizontal;
-        rStack.distribution = UIStackViewDistributionFillEqually;
-        rStack.spacing = 4.0;
-        [rStack.heightAnchor constraintEqualToConstant:36.0].active = YES;
-
-        for (NSString *kTitle in rowKeys) {
-            UIButton *b = [UIButton buttonWithType:UIButtonTypeSystem];
-            b.backgroundColor = [UIColor colorWithRed:0.14 green:0.16 blue:0.14 alpha:1.0];
-            b.layer.cornerRadius = 7.0;
-            b.layer.borderWidth = 1.0;
-            b.layer.borderColor = [self borderSubtleColor].CGColor;
-            [b setTitle:kTitle forState:UIControlStateNormal];
-            [b setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-            b.titleLabel.font = [UIFont systemFontOfSize:12.5 weight:UIFontWeightBold];
-            b.titleLabel.adjustsFontSizeToFitWidth = YES;
-            [b addTarget:self action:@selector(onTapKeypadButton:) forControlEvents:UIControlEventTouchUpInside];
-            [rStack addArrangedSubview:b];
-        }
-        [rowsStack addArrangedSubview:rStack];
-    }
-
-    [NSLayoutConstraint activateConstraints:@[
-        [rowsStack.topAnchor constraintEqualToAnchor:container.topAnchor],
-        [rowsStack.leadingAnchor constraintEqualToAnchor:container.leadingAnchor],
-        [rowsStack.trailingAnchor constraintEqualToAnchor:container.trailingAnchor],
-        [rowsStack.bottomAnchor constraintEqualToAnchor:container.bottomAnchor]
-    ]];
-
-    return container;
+- (void)dismissAllKeyboards {
+    [self.view endEditing:YES];
 }
 
-- (void)refreshKeyDisplayLabel {
-    if (self.enteredKeyBuffer.length > 0) {
-        self.keyDisplayLabel.text = [NSString stringWithFormat:@"Key: %@", self.enteredKeyBuffer];
-        self.keyDisplayLabel.textColor = [self goldAccentColor];
+- (BOOL)textFieldShouldReturn:(UITextField *)textField {
+    [textField resignFirstResponder];
+    if (textField == self.keyInputField) {
+        [self onTapActivateKey];
+    }
+    return YES;
+}
+
+- (void)onTapPasteKeyInline {
+    UIImpactFeedbackGenerator *gen = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleLight];
+    [gen impactOccurred];
+    NSString *clip = ZTechReadClipboardSafely();
+    if (clip.length > 0) {
+        self.keyInputField.text = [clip uppercaseString];
+        self.lockStatusMsgLabel.hidden = YES;
     } else {
-        self.keyDisplayLabel.text = @"Tự động theo Mã máy (Hoặc bấm bàn phím để gõ Key)";
-        self.keyDisplayLabel.textColor = [self mutedTextColor];
+        self.lockStatusMsgLabel.text = @"Bộ nhớ tạm đang trống, hãy sao chép Key trước!";
+        self.lockStatusMsgLabel.textColor = [self dangerCoralColor];
+        self.lockStatusMsgLabel.hidden = NO;
     }
-}
-
-- (void)onTapToggleKeypad {
-    self.keypadContainerView.hidden = !self.keypadContainerView.hidden;
-    [self styleButton:self.btnToggleKeypad
-                title:(self.keypadContainerView.hidden ? @"Gõ mã Key bằng bàn phím trong App" : @"Ẩn bàn phím gõ Key")
-             iconType:ZTechIconKeypadGrid
-            tintColor:[self goldAccentColor]
-                 font:[UIFont systemFontOfSize:13.0 weight:UIFontWeightBold]];
-}
-
-- (void)onTapKeypadButton:(UIButton *)sender {
-    NSString *key = [sender titleForState:UIControlStateNormal] ?: @"";
-    if ([key isEqualToString:@"XOÁ"]) {
-        self.enteredKeyBuffer = @"";
-    } else if ([key isEqualToString:@"⌫"]) {
-        if (self.enteredKeyBuffer.length > 0) {
-            self.enteredKeyBuffer = [self.enteredKeyBuffer substringToIndex:self.enteredKeyBuffer.length - 1];
-        }
-    } else {
-        if (!self.enteredKeyBuffer) self.enteredKeyBuffer = @"";
-        self.enteredKeyBuffer = [self.enteredKeyBuffer stringByAppendingString:key];
-    }
-    [self refreshKeyDisplayLabel];
 }
 
 #pragma mark - License State Updates
@@ -2281,12 +2181,12 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
     self.lockOverlayView.hidden = valid;
     self.btnCloseKeyOverlay.hidden = !valid;
 
-    self.licHwidValueLabel.text = [ZTechLicenseManager deviceHardwareID];
     NSString *savedKey = [ZTechLicenseManager savedLicenseKey];
-    self.licKeyUsedValueLabel.text = (savedKey.length > 0) ? savedKey : @"Kích hoạt tự động theo Mã máy (HWID)";
+    self.licKeyUsedValueLabel.text = (savedKey.length > 0) ? savedKey : @"Chưa kích hoạt";
     self.licPlanDetailValueLabel.text = [ZTechLicenseManager licenseStatusSummary];
 
     if (valid) {
+        [self.keyInputField resignFirstResponder];
         self.headerLicenseText.text = @"ĐÃ KÍCH HOẠT";
         self.headerLicenseText.textColor = [self emeraldColor];
         self.headerLicenseIcon.image = [ZTechVectorIcons iconWithType:ZTechIconShieldCheck size:14.0 color:[self emeraldColor]];
@@ -2302,7 +2202,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
         self.headerLicenseBadge.backgroundColor = [UIColor colorWithRed:0.20 green:0.08 blue:0.08 alpha:1.0];
 
         self.licShieldIconView.image = [ZTechVectorIcons iconWithType:ZTechIconShieldLock size:32.0 color:[self dangerCoralColor]];
-        self.licMainStateLabel.text = @"CHƯA KÍCH HOẠT BẢN QUYỀN\nVui lòng kích hoạt Key để sử dụng";
+        self.licMainStateLabel.text = @"CHƯA KÍCH HOẠT BẢN QUYỀN\nVui lòng nhập Key để sử dụng";
         self.licMainStateLabel.textColor = [self dangerCoralColor];
     }
 }
@@ -2310,51 +2210,56 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
 - (void)onTapShowKeyModal {
     self.lockOverlayView.hidden = NO;
     self.btnCloseKeyOverlay.hidden = ![ZTechLicenseManager isLicenseCurrentlyValid];
+    self.lockStatusMsgLabel.hidden = YES;
     NSString *savedKey = [ZTechLicenseManager savedLicenseKey];
     if (savedKey.length > 0) {
-        self.enteredKeyBuffer = savedKey;
-        [self refreshKeyDisplayLabel];
+        self.keyInputField.text = savedKey;
     }
-    self.lockStatusMsgLabel.text = [ZTechLicenseManager isLicenseCurrentlyValid]
-        ? [NSString stringWithFormat:@"Đang dùng: %@", [ZTechLicenseManager licenseStatusSummary]]
-        : @"Bấm Kích hoạt để tự nhận quyền theo Mã máy hoặc gõ Key.";
 }
 
 - (void)onTapCloseKeyOverlay {
+    [self dismissAllKeyboards];
     if ([ZTechLicenseManager isLicenseCurrentlyValid]) {
         self.lockOverlayView.hidden = YES;
     }
 }
 
 - (void)onTapActivateKey {
-    NSString *inputKey = self.enteredKeyBuffer ?: @"";
+    [self dismissAllKeyboards];
+    NSString *inputKey = [self.keyInputField.text ?: @"" stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    // If user didn't type/paste yet, try auto-reading from clipboard right when they tap Confirm!
+    if (inputKey.length == 0) {
+        NSString *clip = ZTechReadClipboardSafely();
+        if (clip.length >= 6 && clip.length <= 48 && [clip rangeOfString:@" "].location == NSNotFound) {
+            inputKey = [clip uppercaseString];
+            self.keyInputField.text = inputKey;
+        }
+    }
+
     self.btnActivateKey.enabled = NO;
     [self styleButton:self.btnActivateKey
-                title:@"Đang kiểm tra trên Upstash..."
+                title:@"Đang xác nhận..."
              iconType:ZTechIconCloudSync
             tintColor:[self darkInkColor]
-                 font:[UIFont systemFontOfSize:14.5 weight:UIFontWeightHeavy]];
-    self.lockStatusMsgLabel.text = @"Đang đối chiếu Mã máy & Key với Upstash Redis...";
-    self.lockStatusMsgLabel.textColor = [self goldAccentColor];
+                 font:[UIFont systemFontOfSize:15.5 weight:UIFontWeightHeavy]];
+    self.lockStatusMsgLabel.hidden = YES;
 
     [ZTechLicenseManager verifyAndActivateKey:inputKey completion:^(BOOL isValid, NSString * _Nonnull message, NSString * _Nullable ownerName, NSString * _Nullable expiryText) {
         self.btnActivateKey.enabled = YES;
         [self styleButton:self.btnActivateKey
-                    title:@"Kích hoạt Bản quyền (Tự nhận Mã máy / Key)"
+                    title:@"Xác nhận"
                  iconType:ZTechIconShieldCheck
                 tintColor:[self darkInkColor]
-                     font:[UIFont systemFontOfSize:14.5 weight:UIFontWeightHeavy]];
-        self.lockStatusMsgLabel.text = message;
+                     font:[UIFont systemFontOfSize:15.5 weight:UIFontWeightHeavy]];
         if (isValid) {
-            self.enteredKeyBuffer = [ZTechLicenseManager savedLicenseKey] ?: @"";
-            [self refreshKeyDisplayLabel];
-            self.lockStatusMsgLabel.textColor = [self emeraldColor];
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                [self updateLicenseUIState];
-                [self showToast:@"Kích hoạt bản quyền thành công!" isError:NO];
-            });
+            self.keyInputField.text = [ZTechLicenseManager savedLicenseKey] ?: inputKey;
+            self.lockStatusMsgLabel.hidden = YES;
+            [self updateLicenseUIState];
+            [self showToast:@"Kích hoạt Key thành công!" isError:NO];
         } else {
+            self.lockStatusMsgLabel.text = message;
             self.lockStatusMsgLabel.textColor = [self dangerCoralColor];
+            self.lockStatusMsgLabel.hidden = NO;
             [self updateLicenseUIState];
         }
     }];
