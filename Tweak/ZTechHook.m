@@ -8,6 +8,11 @@
 #import <sys/utsname.h>
 #import <sys/sysctl.h>
 #import <sys/stat.h>
+#import <sys/socket.h>
+#import <ifaddrs.h>
+#import <arpa/inet.h>
+#import <net/if.h>
+#import <netinet/in.h>
 #import <unistd.h>
 #import <dlfcn.h>
 #import <mach/mach.h>
@@ -44,7 +49,7 @@ struct zt_rebinding {
     void **replaced;
 };
 
-static struct zt_rebinding gRebindings[8];
+static struct zt_rebinding gRebindings[12];
 static size_t gRebindingsCount = 0;
 
 static void perform_rebinding_with_section(section_t *section,
@@ -60,7 +65,10 @@ static void perform_rebinding_with_section(section_t *section,
     vm_size_t page_len = (((vm_address_t)indirect_symbol_bindings + section->size) - page_start + PAGE_SIZE - 1) & ~(vm_size_t)(PAGE_SIZE - 1);
     kern_return_t kr = vm_protect(mach_task_self(), page_start, page_len, FALSE, VM_PROT_READ | VM_PROT_WRITE | VM_PROT_COPY);
     if (kr != KERN_SUCCESS) {
-        return;
+        kr = vm_protect(mach_task_self(), page_start, page_len, FALSE, VM_PROT_READ | VM_PROT_WRITE);
+        if (kr != KERN_SUCCESS) {
+            return;
+        }
     }
 
     uint32_t *indirect_symbol_indices = (indirect_symtab && section->reserved1 < nindirectsyms)
@@ -167,7 +175,7 @@ static void rebind_symbols_for_image(const struct mach_header *header, intptr_t 
     }
 }
 
-#pragma mark - Lock-Free Pre-Cached Profile & Pure C Buffers
+#pragma mark - Lock-Free Pre-Cached Profile, Pure C Buffers & Pre-Parsed Proxy State
 
 static NSDictionary *gCachedProfile = nil;
 static char gMachineCStr[64] = "iPhone17,2";
@@ -178,6 +186,178 @@ static NSString *gIosVersionObj = @"18.2.1";
 static NSString *gUuidObj = @"7BD46FDA-D93D-45BD-9158-7178669502DD";
 static NSString *gActiveProxyObj = @"";
 static float gBatteryFloat = 0.76f;
+
+// Pre-cached Proxy Structures for Zero-Latency / Zero-Leak Networking Enforcement
+static volatile int gProxyEnabled = 0;
+static volatile int gProxyIsSocks = 0;
+static uint32_t gMaskedLocalIPv4 = 0x6C01A8C0; // 192.168.1.108 in network byte order
+static NSDictionary *gCachedProxyDict = nil;
+static NSArray *gCachedCFProxyArray = nil;
+static NSString *gCachedProxyAuthHeader = nil;
+
+static void ZTechRebuildCachedProxyState(NSString *rawProxy) {
+    if (!rawProxy || rawProxy.length == 0) {
+        gProxyEnabled = 0;
+        gProxyIsSocks = 0;
+        gCachedProxyDict = nil;
+        gCachedCFProxyArray = nil;
+        gCachedProxyAuthHeader = nil;
+        return;
+    }
+
+    NSString *s = [rawProxy stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if (s.length == 0) {
+        gProxyEnabled = 0;
+        gProxyIsSocks = 0;
+        gCachedProxyDict = nil;
+        gCachedCFProxyArray = nil;
+        gCachedProxyAuthHeader = nil;
+        return;
+    }
+
+    BOOL isSocks = NO;
+    NSString *lower = [s lowercaseString];
+    if ([lower hasPrefix:@"socks5://"]) {
+        isSocks = YES;
+        s = [s substringFromIndex:9];
+    } else if ([lower hasPrefix:@"socks5h://"]) {
+        isSocks = YES;
+        s = [s substringFromIndex:10];
+    } else if ([lower hasPrefix:@"socks://"]) {
+        isSocks = YES;
+        s = [s substringFromIndex:8];
+    } else if ([lower hasPrefix:@"http://"]) {
+        s = [s substringFromIndex:7];
+    } else if ([lower hasPrefix:@"https://"]) {
+        s = [s substringFromIndex:8];
+    }
+
+    // Strip any trailing slash or path
+    NSRange slashRange = [s rangeOfString:@"/"];
+    if (slashRange.location != NSNotFound) {
+        s = [s substringToIndex:slashRange.location];
+    }
+
+    NSString *host = nil;
+    NSInteger port = 0;
+    NSString *user = nil;
+    NSString *pass = nil;
+
+    if ([s containsString:@"@"]) {
+        // Supports both user:pass@host:port and host:port@user:pass
+        NSArray<NSString *> *atParts = [s componentsSeparatedByString:@"@"];
+        if (atParts.count == 2) {
+            NSArray<NSString *> *p0 = [atParts[0] componentsSeparatedByString:@":"];
+            NSArray<NSString *> *p1 = [atParts[1] componentsSeparatedByString:@":"];
+            if (p1.count == 2 && [p1[1] integerValue] > 0 && [p1[1] integerValue] <= 65535 && [p1[0] containsString:@"."]) {
+                user = p0.count >= 1 ? p0[0] : nil;
+                pass = p0.count >= 2 ? [[p0 subarrayWithRange:NSMakeRange(1, p0.count - 1)] componentsJoinedByString:@":"] : nil;
+                host = p1[0];
+                port = [p1[1] integerValue];
+            } else if (p0.count == 2 && [p0[1] integerValue] > 0 && [p0[1] integerValue] <= 65535) {
+                host = p0[0];
+                port = [p0[1] integerValue];
+                user = p1.count >= 1 ? p1[0] : nil;
+                pass = p1.count >= 2 ? [[p1 subarrayWithRange:NSMakeRange(1, p1.count - 1)] componentsJoinedByString:@":"] : nil;
+            }
+        }
+    } else {
+        NSArray<NSString *> *parts = [s componentsSeparatedByString:@":"];
+        if (parts.count >= 2) {
+            host = parts[0];
+            port = [parts[1] integerValue];
+            if (parts.count >= 4) {
+                user = parts[2];
+                pass = [[parts subarrayWithRange:NSMakeRange(3, parts.count - 3)] componentsJoinedByString:@":"];
+            }
+        }
+    }
+
+    host = [host stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if (!host || host.length == 0 || port <= 0 || port > 65535) {
+        gProxyEnabled = 0;
+        gProxyIsSocks = 0;
+        gCachedProxyDict = nil;
+        gCachedCFProxyArray = nil;
+        gCachedProxyAuthHeader = nil;
+        return;
+    }
+
+    NSString *authHeader = nil;
+    if (user.length > 0 && pass != nil) {
+        NSString *rawCred = [NSString stringWithFormat:@"%@:%@", user, pass];
+        NSData *credData = [rawCred dataUsingEncoding:NSUTF8StringEncoding];
+        if (credData) {
+            authHeader = [NSString stringWithFormat:@"Basic %@", [credData base64EncodedStringWithOptions:0]];
+        }
+    }
+
+    NSMutableDictionary *proxyDict = [NSMutableDictionary dictionary];
+    // Disable PAC & simple hostname bypass so 100% of traffic goes through the proxy
+    proxyDict[@"ProxyAutoConfigEnable"] = @0;
+    proxyDict[@"ProxyAutoDiscoveryEnable"] = @0;
+    proxyDict[@"ExcludeSimpleHostnames"] = @0;
+
+    NSMutableDictionary *cfProxyItem = [NSMutableDictionary dictionary];
+    cfProxyItem[(__bridge NSString *)kCFProxyHostNameKey] = host;
+    cfProxyItem[(__bridge NSString *)kCFProxyPortNumberKey] = @(port);
+    if (user.length > 0 && pass != nil) {
+        cfProxyItem[(__bridge NSString *)kCFProxyUsernameKey] = user;
+        cfProxyItem[(__bridge NSString *)kCFProxyPasswordKey] = pass;
+    }
+
+    if (isSocks) {
+        proxyDict[@"SOCKSEnable"] = @1;
+        proxyDict[@"SOCKSProxy"] = host;
+        proxyDict[@"SOCKSPort"] = @(port);
+        proxyDict[(__bridge NSString *)kCFStreamPropertySOCKSProxyHost] = host;
+        proxyDict[(__bridge NSString *)kCFStreamPropertySOCKSProxyPort] = @(port);
+        proxyDict[(__bridge NSString *)kCFStreamPropertySOCKSVersion] = (__bridge NSString *)kCFStreamSocketSOCKSVersion5;
+        if (user.length > 0 && pass != nil) {
+            proxyDict[(__bridge NSString *)kCFStreamPropertySOCKSUser] = user;
+            proxyDict[(__bridge NSString *)kCFStreamPropertySOCKSPassword] = pass;
+            proxyDict[(__bridge NSString *)kCFProxyUsernameKey] = user;
+            proxyDict[(__bridge NSString *)kCFProxyPasswordKey] = pass;
+        }
+        cfProxyItem[(__bridge NSString *)kCFProxyTypeKey] = (__bridge NSString *)kCFProxyTypeSOCKS;
+    } else {
+        proxyDict[@"HTTPEnable"] = @1;
+        proxyDict[@"HTTPProxy"] = host;
+        proxyDict[@"HTTPPort"] = @(port);
+        proxyDict[@"HTTPSEnable"] = @1;
+        proxyDict[@"HTTPSProxy"] = host;
+        proxyDict[@"HTTPSPort"] = @(port);
+        proxyDict[(__bridge NSString *)kCFStreamPropertyHTTPProxyHost] = host;
+        proxyDict[(__bridge NSString *)kCFStreamPropertyHTTPProxyPort] = @(port);
+        proxyDict[(__bridge NSString *)kCFStreamPropertyHTTPSProxyHost] = host;
+        proxyDict[(__bridge NSString *)kCFStreamPropertyHTTPSProxyPort] = @(port);
+        if (user.length > 0 && pass != nil) {
+            proxyDict[(__bridge NSString *)kCFProxyUsernameKey] = user;
+            proxyDict[(__bridge NSString *)kCFProxyPasswordKey] = pass;
+            proxyDict[@"HTTPUser"] = user;
+            proxyDict[@"HTTPPassword"] = pass;
+            proxyDict[@"HTTPSUser"] = user;
+            proxyDict[@"HTTPSPassword"] = pass;
+        }
+        cfProxyItem[(__bridge NSString *)kCFProxyTypeKey] = (__bridge NSString *)kCFProxyTypeHTTPS;
+    }
+
+    NSMutableDictionary *cfProxyHttpItem = [cfProxyItem mutableCopy];
+    if (!isSocks) {
+        cfProxyHttpItem[(__bridge NSString *)kCFProxyTypeKey] = (__bridge NSString *)kCFProxyTypeHTTP;
+    }
+
+    // Deterministic private IPv4 derived from proxy host/port so local interface IP matches session
+    uint32_t hash = (uint32_t)([host hash] ^ (NSUInteger)port);
+    uint8_t lastOctet = (uint8_t)((hash % 230) + 15);
+    gMaskedLocalIPv4 = htonl((192U << 24) | (168U << 16) | (1U << 8) | (uint32_t)lastOctet);
+
+    gCachedProxyDict = [proxyDict copy];
+    gCachedCFProxyArray = isSocks ? @[[cfProxyItem copy]] : @[[cfProxyItem copy], [cfProxyHttpItem copy]];
+    gCachedProxyAuthHeader = [authHeader copy];
+    gProxyIsSocks = isSocks ? 1 : 0;
+    gProxyEnabled = 1;
+}
 
 static NSDictionary *ZTechNormalizeProfile(NSDictionary *raw) {
     NSMutableDictionary *m = [NSMutableDictionary dictionaryWithDictionary:raw ?: @{}];
@@ -230,6 +410,8 @@ static void ZTechApplyCachedProfileValues(NSDictionary *prof) {
 
     NSInteger pct = [prof[@"batteryPercent"] integerValue];
     gBatteryFloat = (pct > 0 && pct <= 100) ? ((float)pct / 100.0f) : 0.76f;
+
+    ZTechRebuildCachedProxyState(gActiveProxyObj);
 }
 
 static NSDictionary *ZTechLoadProfileOnce(void) {
@@ -288,142 +470,151 @@ static NSDictionary *ZTechLoadProfileOnce(void) {
     return gCachedProfile;
 }
 
-#pragma mark - Per-Account Proxy Parser & Injection
+#pragma mark - Zero-Leak Proxy Enforcement (NSURLSession, CFNetwork, SocketStream & getifaddrs)
 
-static NSDictionary *ZTechBuildProxySettings(NSString *rawProxy, NSString **outBasicAuthHeader) {
-    if (!rawProxy || rawProxy.length == 0) return nil;
-    NSString *s = [rawProxy stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-    if (s.length == 0) return nil;
-
-    BOOL isSocks = NO;
-    if ([[s lowercaseString] hasPrefix:@"socks5://"]) {
-        isSocks = YES;
-        s = [s substringFromIndex:9];
-    } else if ([[s lowercaseString] hasPrefix:@"socks://"]) {
-        isSocks = YES;
-        s = [s substringFromIndex:8];
-    } else if ([[s lowercaseString] hasPrefix:@"http://"]) {
-        s = [s substringFromIndex:7];
-    } else if ([[s lowercaseString] hasPrefix:@"https://"]) {
-        s = [s substringFromIndex:8];
-    }
-
-    NSString *host = nil;
-    NSInteger port = 0;
-    NSString *user = nil;
-    NSString *pass = nil;
-
-    if ([s containsString:@"@"]) {
-        NSArray<NSString *> *atParts = [s componentsSeparatedByString:@"@"];
-        if (atParts.count == 2) {
-            NSArray<NSString *> *cred = [atParts[0] componentsSeparatedByString:@":"];
-            if (cred.count >= 2) {
-                user = cred[0];
-                pass = cred[1];
-            }
-            NSArray<NSString *> *hp = [atParts[1] componentsSeparatedByString:@":"];
-            if (hp.count >= 2) {
-                host = hp[0];
-                port = [hp[1] integerValue];
-            }
+static void ZTechEnforceProxyOnConfiguration(NSURLSessionConfiguration *cfg) {
+    if (!cfg || !gProxyEnabled || !gCachedProxyDict) return;
+    @try {
+        cfg.connectionProxyDictionary = gCachedProxyDict;
+        if (@available(iOS 13.0, *)) {
+            // Prevent multipath TCP from bypassing proxy over cellular interface
+            cfg.multipathServiceType = NSURLSessionMultipathServiceTypeNone;
         }
-    } else {
-        NSArray<NSString *> *parts = [s componentsSeparatedByString:@":"];
-        if (parts.count >= 2) {
-            host = parts[0];
-            port = [parts[1] integerValue];
-            if (parts.count >= 4) {
-                user = parts[2];
-                pass = parts[3];
-            }
+        NSMutableDictionary *headers = [NSMutableDictionary dictionaryWithDictionary:cfg.HTTPAdditionalHeaders ?: @{}];
+        if (gCachedProxyAuthHeader.length > 0) {
+            headers[@"Proxy-Authorization"] = gCachedProxyAuthHeader;
+            headers[@"Authorization-Proxy"] = gCachedProxyAuthHeader;
         }
-    }
+        // Strip any IP-forwarding headers
+        [headers removeObjectForKey:@"X-Forwarded-For"];
+        [headers removeObjectForKey:@"X-Real-IP"];
+        [headers removeObjectForKey:@"Client-IP"];
+        [headers removeObjectForKey:@"Forwarded"];
+        cfg.HTTPAdditionalHeaders = headers;
+    } @catch (NSException *e) {}
+}
 
-    if (!host || host.length == 0 || port <= 0 || port > 65535) {
-        return nil;
-    }
-
-    NSMutableDictionary *proxyDict = [NSMutableDictionary dictionary];
-    if (isSocks) {
-        proxyDict[@"SOCKSEnable"] = @1;
-        proxyDict[@"SOCKSProxy"] = host;
-        proxyDict[@"SOCKSPort"] = @(port);
-        proxyDict[(__bridge NSString *)kCFStreamPropertySOCKSProxyHost] = host;
-        proxyDict[(__bridge NSString *)kCFStreamPropertySOCKSProxyPort] = @(port);
-        proxyDict[(__bridge NSString *)kCFStreamPropertySOCKSVersion] = (__bridge NSString *)kCFStreamSocketSOCKSVersion5;
-        if (user.length > 0 && pass.length > 0) {
-            proxyDict[(__bridge NSString *)kCFStreamPropertySOCKSUser] = user;
-            proxyDict[(__bridge NSString *)kCFStreamPropertySOCKSPassword] = pass;
+static NSURLRequest *ZTechSanitizeAndAuthorizeRequest(NSURLRequest *req) {
+    if (!req || !gProxyEnabled) return req;
+    @try {
+        NSMutableURLRequest *mReq = [req isKindOfClass:[NSMutableURLRequest class]]
+            ? (NSMutableURLRequest *)req
+            : [req mutableCopy];
+        if (gCachedProxyAuthHeader.length > 0 && ![mReq valueForHTTPHeaderField:@"Proxy-Authorization"]) {
+            [mReq setValue:gCachedProxyAuthHeader forHTTPHeaderField:@"Proxy-Authorization"];
         }
-    } else {
-        proxyDict[@"HTTPEnable"] = @1;
-        proxyDict[@"HTTPProxy"] = host;
-        proxyDict[@"HTTPPort"] = @(port);
-        proxyDict[@"HTTPSEnable"] = @1;
-        proxyDict[@"HTTPSProxy"] = host;
-        proxyDict[@"HTTPSPort"] = @(port);
-        proxyDict[(__bridge NSString *)kCFStreamPropertyHTTPProxyHost] = host;
-        proxyDict[(__bridge NSString *)kCFStreamPropertyHTTPProxyPort] = @(port);
-        proxyDict[(__bridge NSString *)kCFStreamPropertyHTTPSProxyHost] = host;
-        proxyDict[(__bridge NSString *)kCFStreamPropertyHTTPSProxyPort] = @(port);
-        if (user.length > 0 && pass.length > 0) {
-            proxyDict[(__bridge NSString *)kCFProxyUsernameKey] = user;
-            proxyDict[(__bridge NSString *)kCFProxyPasswordKey] = pass;
-            NSString *rawCred = [NSString stringWithFormat:@"%@:%@", user, pass];
-            NSData *credData = [rawCred dataUsingEncoding:NSUTF8StringEncoding];
-            if (outBasicAuthHeader && credData) {
-                *outBasicAuthHeader = [NSString stringWithFormat:@"Basic %@", [credData base64EncodedStringWithOptions:0]];
-            }
-        }
+        [mReq setValue:nil forHTTPHeaderField:@"X-Forwarded-For"];
+        [mReq setValue:nil forHTTPHeaderField:@"X-Real-IP"];
+        [mReq setValue:nil forHTTPHeaderField:@"Client-IP"];
+        [mReq setValue:nil forHTTPHeaderField:@"Forwarded"];
+        return mReq;
+    } @catch (NSException *e) {
+        return req;
     }
-    return proxyDict;
 }
 
 static NSURLSessionConfiguration *(*orig_defaultSessionConfig)(id, SEL) = NULL;
 static NSURLSessionConfiguration *swizzled_defaultSessionConfig(id self, SEL _cmd) {
     NSURLSessionConfiguration *cfg = orig_defaultSessionConfig ? orig_defaultSessionConfig(self, _cmd) : nil;
-    if (cfg && gActiveProxyObj.length > 0) {
-        NSString *authHeader = nil;
-        NSDictionary *proxyDict = ZTechBuildProxySettings(gActiveProxyObj, &authHeader);
-        if (proxyDict) {
-            cfg.connectionProxyDictionary = proxyDict;
-            if (authHeader.length > 0) {
-                NSMutableDictionary *headers = [NSMutableDictionary dictionaryWithDictionary:cfg.HTTPAdditionalHeaders ?: @{}];
-                headers[@"Proxy-Authorization"] = authHeader;
-                cfg.HTTPAdditionalHeaders = headers;
-            }
-        }
-    }
+    ZTechEnforceProxyOnConfiguration(cfg);
     return cfg;
 }
 
 static NSURLSessionConfiguration *(*orig_ephemeralSessionConfig)(id, SEL) = NULL;
 static NSURLSessionConfiguration *swizzled_ephemeralSessionConfig(id self, SEL _cmd) {
     NSURLSessionConfiguration *cfg = orig_ephemeralSessionConfig ? orig_ephemeralSessionConfig(self, _cmd) : nil;
-    if (cfg && gActiveProxyObj.length > 0) {
-        NSString *authHeader = nil;
-        NSDictionary *proxyDict = ZTechBuildProxySettings(gActiveProxyObj, &authHeader);
-        if (proxyDict) {
-            cfg.connectionProxyDictionary = proxyDict;
-            if (authHeader.length > 0) {
-                NSMutableDictionary *headers = [NSMutableDictionary dictionaryWithDictionary:cfg.HTTPAdditionalHeaders ?: @{}];
-                headers[@"Proxy-Authorization"] = authHeader;
-                cfg.HTTPAdditionalHeaders = headers;
-            }
-        }
-    }
+    ZTechEnforceProxyOnConfiguration(cfg);
     return cfg;
+}
+
+static NSURLSessionConfiguration *(*orig_backgroundSessionConfig)(id, SEL, NSString *) = NULL;
+static NSURLSessionConfiguration *swizzled_backgroundSessionConfig(id self, SEL _cmd, NSString *identifier) {
+    NSURLSessionConfiguration *cfg = orig_backgroundSessionConfig ? orig_backgroundSessionConfig(self, _cmd, identifier) : nil;
+    ZTechEnforceProxyOnConfiguration(cfg);
+    return cfg;
+}
+
+static NSURLSession *(*orig_sessionWithConfig)(id, SEL, NSURLSessionConfiguration *) = NULL;
+static NSURLSession *swizzled_sessionWithConfig(id self, SEL _cmd, NSURLSessionConfiguration *configuration) {
+    ZTechEnforceProxyOnConfiguration(configuration);
+    return orig_sessionWithConfig ? orig_sessionWithConfig(self, _cmd, configuration) : nil;
+}
+
+static NSURLSession *(*orig_sessionWithConfigDelegateQueue)(id, SEL, NSURLSessionConfiguration *, id, NSOperationQueue *) = NULL;
+static NSURLSession *swizzled_sessionWithConfigDelegateQueue(id self, SEL _cmd, NSURLSessionConfiguration *configuration, id delegate, NSOperationQueue *queue) {
+    ZTechEnforceProxyOnConfiguration(configuration);
+    return orig_sessionWithConfigDelegateQueue ? orig_sessionWithConfigDelegateQueue(self, _cmd, configuration, delegate, queue) : nil;
+}
+
+static NSURLSessionDataTask *(*orig_dataTaskWithRequest)(id, SEL, NSURLRequest *) = NULL;
+static NSURLSessionDataTask *swizzled_dataTaskWithRequest(id self, SEL _cmd, NSURLRequest *request) {
+    NSURLRequest *cleanReq = ZTechSanitizeAndAuthorizeRequest(request);
+    return orig_dataTaskWithRequest ? orig_dataTaskWithRequest(self, _cmd, cleanReq) : nil;
+}
+
+static NSURLSessionDataTask *(*orig_dataTaskWithRequestCompletion)(id, SEL, NSURLRequest *, id) = NULL;
+static NSURLSessionDataTask *swizzled_dataTaskWithRequestCompletion(id self, SEL _cmd, NSURLRequest *request, id completionHandler) {
+    NSURLRequest *cleanReq = ZTechSanitizeAndAuthorizeRequest(request);
+    return orig_dataTaskWithRequestCompletion ? orig_dataTaskWithRequestCompletion(self, _cmd, cleanReq, completionHandler) : nil;
 }
 
 static CFDictionaryRef (*orig_CFNetworkCopySystemProxySettings)(void) = NULL;
 static CFDictionaryRef hooked_CFNetworkCopySystemProxySettings(void) {
-    if (gActiveProxyObj.length > 0) {
-        NSDictionary *proxyDict = ZTechBuildProxySettings(gActiveProxyObj, NULL);
-        if (proxyDict) {
-            return (__bridge_retained CFDictionaryRef)[proxyDict copy];
-        }
+    if (gProxyEnabled && gCachedProxyDict != nil) {
+        return (__bridge_retained CFDictionaryRef)[gCachedProxyDict copy];
     }
     return orig_CFNetworkCopySystemProxySettings ? orig_CFNetworkCopySystemProxySettings() : NULL;
+}
+
+static CFArrayRef (*orig_CFNetworkCopyProxiesForURL)(CFURLRef url, CFDictionaryRef proxySettings) = NULL;
+static CFArrayRef hooked_CFNetworkCopyProxiesForURL(CFURLRef url, CFDictionaryRef proxySettings) {
+    if (gProxyEnabled && gCachedCFProxyArray != nil) {
+        return (__bridge_retained CFArrayRef)[gCachedCFProxyArray copy];
+    }
+    return orig_CFNetworkCopyProxiesForURL ? orig_CFNetworkCopyProxiesForURL(url, proxySettings) : NULL;
+}
+
+static void (*orig_CFStreamCreatePairWithSocketToHost)(CFAllocatorRef alloc, CFStringRef host, UInt32 port, CFReadStreamRef *readStream, CFWriteStreamRef *writeStream) = NULL;
+static void hooked_CFStreamCreatePairWithSocketToHost(CFAllocatorRef alloc, CFStringRef host, UInt32 port, CFReadStreamRef *readStream, CFWriteStreamRef *writeStream) {
+    if (orig_CFStreamCreatePairWithSocketToHost) {
+        orig_CFStreamCreatePairWithSocketToHost(alloc, host, port, readStream, writeStream);
+    }
+    if (gProxyEnabled && gCachedProxyDict != nil) {
+        CFStringRef propKey = gProxyIsSocks ? kCFStreamPropertySOCKSProxy : kCFStreamPropertyHTTPProxy;
+        if (readStream && *readStream) {
+            CFReadStreamSetProperty(*readStream, propKey, (__bridge CFTypeRef)gCachedProxyDict);
+        }
+        if (writeStream && *writeStream) {
+            CFWriteStreamSetProperty(*writeStream, propKey, (__bridge CFTypeRef)gCachedProxyDict);
+        }
+    }
+}
+
+static int (*orig_getifaddrs)(struct ifaddrs **ifap) = NULL;
+static int hooked_getifaddrs(struct ifaddrs **ifap) {
+    int ret = orig_getifaddrs ? orig_getifaddrs(ifap) : -1;
+    if (ret == 0 && ifap != NULL && *ifap != NULL && gProxyEnabled) {
+        // Mask cellular (pdp_ip*) and Wi-Fi (en*) local/public IPv4 & IPv6 addresses so Zalo cannot read real carrier IP
+        struct ifaddrs *cur = *ifap;
+        while (cur != NULL) {
+            if (cur->ifa_addr != NULL && cur->ifa_name != NULL && strncmp(cur->ifa_name, "lo", 2) != 0) {
+                sa_family_t fam = cur->ifa_addr->sa_family;
+                if (fam == AF_INET) {
+                    struct sockaddr_in *sin = (struct sockaddr_in *)cur->ifa_addr;
+                    sin->sin_addr.s_addr = gMaskedLocalIPv4;
+                } else if (fam == AF_INET6) {
+                    struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *)cur->ifa_addr;
+                    // Replace global carrier IPv6 with link-local fe80::1 so public 4G IPv6 never leaks
+                    memset(&sin6->sin6_addr, 0, sizeof(struct in6_addr));
+                    sin6->sin6_addr.s6_addr[0] = 0xfe;
+                    sin6->sin6_addr.s6_addr[1] = 0x80;
+                    sin6->sin6_addr.s6_addr[15] = 0x01;
+                }
+            }
+            cur = cur->ifa_next;
+        }
+    }
+    return ret;
 }
 
 #pragma mark - Lock-Free Pure C Function Hooks (uname, sysctlbyname, sysctl, MGCopyAnswer)
@@ -504,7 +695,7 @@ static CFTypeRef hooked_MGCopyAnswer(CFStringRef prop) {
     return orig_MGCopyAnswer ? orig_MGCopyAnswer(prop) : NULL;
 }
 
-#pragma mark - Objective-C Swizzles (UIDevice, NSProcessInfo, UILabel, WKWebView)
+#pragma mark - Objective-C Swizzles (UIDevice, NSProcessInfo, Universal iPhone Model UILabel & WKWebView)
 
 static NSString *(*orig_systemVersion)(id, SEL) = NULL;
 static NSString *swizzled_systemVersion(id self, SEL _cmd) {
@@ -550,18 +741,19 @@ static unsigned long long swizzled_physicalMemory(id self, SEL _cmd) {
     return (unsigned long long)gRamBytes;
 }
 
+static NSRegularExpression *gIPhoneModelRegex = nil;
+
 static void (*orig_UILabel_setText)(id, SEL, NSString *) = NULL;
 static void swizzled_UILabel_setText(id self, SEL _cmd, NSString *text) {
-    if ([text isKindOfClass:[NSString class]] && text.length >= 8) {
-        if ([text rangeOfString:@"iPhone 7"].location != NSNotFound ||
-            [text rangeOfString:@"iPhone9,"].location != NSNotFound) {
+    if ([text isKindOfClass:[NSString class]] && text.length >= 7) {
+        if ([text rangeOfString:@"iPhone"].location != NSNotFound) {
             NSString *modelName = gModelNameObj ?: @"iPhone 16 Pro Max";
-            text = [text stringByReplacingOccurrencesOfString:@"iPhone 7 Plus" withString:modelName];
-            text = [text stringByReplacingOccurrencesOfString:@"iPhone 7" withString:modelName];
-            text = [text stringByReplacingOccurrencesOfString:@"iPhone9,1" withString:modelName];
-            text = [text stringByReplacingOccurrencesOfString:@"iPhone9,2" withString:modelName];
-            text = [text stringByReplacingOccurrencesOfString:@"iPhone9,3" withString:modelName];
-            text = [text stringByReplacingOccurrencesOfString:@"iPhone9,4" withString:modelName];
+            if (![text isEqualToString:modelName] && gIPhoneModelRegex != nil) {
+                text = [gIPhoneModelRegex stringByReplacingMatchesInString:text
+                                                                   options:0
+                                                                     range:NSMakeRange(0, text.length)
+                                                              withTemplate:modelName];
+            }
         }
     }
     if (orig_UILabel_setText) {
@@ -573,36 +765,57 @@ static id (*orig_WKWebView_initWithFrameConfig)(id, SEL, CGRect, id) = NULL;
 static id swizzled_WKWebView_initWithFrameConfig(id self, SEL _cmd, CGRect frame, id configuration) {
     @try {
         if (configuration) {
-            NSString *safeModel = [(gModelNameObj ?: @"iPhone 16 Pro Max") stringByReplacingOccurrencesOfString:@"'" withString:@""];
-            NSString *js = [NSString stringWithFormat:
-                @"(function(){"
-                @"var m='%@';"
-                @"function fix(){"
-                @"if(!document.body||!document.body.innerText||document.body.innerText.indexOf('iPhone 7')===-1)return;"
-                @"var w=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT,null,false),n;"
-                @"while((n=w.nextNode())){"
-                @"if(n.nodeValue&&n.nodeValue.indexOf('iPhone 7')!==-1){"
-                @"n.nodeValue=n.nodeValue.replace(/iPhone 7 Plus/g,m).replace(/iPhone 7/g,m);"
-                @"}"
-                @"}"
-                @"}"
-                @"setTimeout(fix,250);setTimeout(fix,900);setTimeout(fix,2000);"
-                @"})();", safeModel];
-
             Class usrScriptCls = NSClassFromString(@"WKUserScript");
-            if (usrScriptCls) {
-                SEL allocSel = sel_registerName("alloc");
-                SEL initSel = sel_registerName("initWithSource:injectionTime:forMainFrameOnly:");
-                id scriptAlloc = ((id (*)(id, SEL))objc_msgSend)(usrScriptCls, allocSel);
-                if (scriptAlloc && [scriptAlloc respondsToSelector:initSel]) {
-                    id usrScript = ((id (*)(id, SEL, NSString *, NSInteger, BOOL))objc_msgSend)(scriptAlloc, initSel, js, 1, NO);
-                    SEL uccSel = sel_registerName("userContentController");
-                    if (usrScript && [configuration respondsToSelector:uccSel]) {
-                        id ucc = ((id (*)(id, SEL))objc_msgSend)(configuration, uccSel);
-                        SEL addSel = sel_registerName("addUserScript:");
-                        if (ucc && [ucc respondsToSelector:addSel]) {
-                            ((void (*)(id, SEL, id))objc_msgSend)(ucc, addSel, usrScript);
+            SEL allocSel = sel_registerName("alloc");
+            SEL initSel = sel_registerName("initWithSource:injectionTime:forMainFrameOnly:");
+            SEL uccSel = sel_registerName("userContentController");
+            SEL addSel = sel_registerName("addUserScript:");
+
+            if (usrScriptCls && [configuration respondsToSelector:uccSel]) {
+                id ucc = ((id (*)(id, SEL))objc_msgSend)(configuration, uccSel);
+                if (ucc && [ucc respondsToSelector:addSel]) {
+                    // 1. WebRTC STUN/ICE Leak Blocker when Proxy is enabled (AtDocumentStart = 0)
+                    if (gProxyEnabled) {
+                        NSString *rtcJs = @"(function(){"
+                            @"var origRTC=window.RTCPeerConnection||window.webkitRTCPeerConnection;"
+                            @"if(origRTC){"
+                            @"var wrapped=function(cfg,con){"
+                            @"cfg=cfg||{};cfg.iceServers=[];cfg.iceTransportPolicy='relay';"
+                            @"return new origRTC(cfg,con);"
+                            @"};"
+                            @"wrapped.prototype=origRTC.prototype;"
+                            @"window.RTCPeerConnection=wrapped;window.webkitRTCPeerConnection=wrapped;"
+                            @"}"
+                            @"})();";
+                        id s0 = ((id (*)(id, SEL))objc_msgSend)(usrScriptCls, allocSel);
+                        if (s0 && [s0 respondsToSelector:initSel]) {
+                            id u0 = ((id (*)(id, SEL, NSString *, NSInteger, BOOL))objc_msgSend)(s0, initSel, rtcJs, 0, NO);
+                            if (u0) ((void (*)(id, SEL, id))objc_msgSend)(ucc, addSel, u0);
                         }
+                    }
+
+                    // 2. Universal iPhone Model Replacement for Zalo Device Manager (AtDocumentEnd = 1)
+                    NSString *safeModel = [(gModelNameObj ?: @"iPhone 16 Pro Max") stringByReplacingOccurrencesOfString:@"'" withString:@""];
+                    NSString *js = [NSString stringWithFormat:
+                        @"(function(){"
+                        @"var m='%@';"
+                        @"var re=/iPhone\\s*(?:6s?|7|8|SE|X[SR]?|1[1-5])(?:\\s*(?:Plus|Pro\\s*Max|Pro|mini))?/gi;"
+                        @"function fix(){"
+                        @"if(!document.body||!document.body.innerText||document.body.innerText.indexOf('iPhone')===-1)return;"
+                        @"var w=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT,null,false),n;"
+                        @"while((n=w.nextNode())){"
+                        @"if(n.nodeValue&&n.nodeValue.indexOf('iPhone')!==-1&&n.nodeValue.indexOf(m)===-1){"
+                        @"n.nodeValue=n.nodeValue.replace(re,m);"
+                        @"}"
+                        @"}"
+                        @"}"
+                        @"setTimeout(fix,200);setTimeout(fix,800);setTimeout(fix,1800);"
+                        @"})();", safeModel];
+
+                    id s1 = ((id (*)(id, SEL))objc_msgSend)(usrScriptCls, allocSel);
+                    if (s1 && [s1 respondsToSelector:initSel]) {
+                        id u1 = ((id (*)(id, SEL, NSString *, NSInteger, BOOL))objc_msgSend)(s1, initSel, js, 1, NO);
+                        if (u1) ((void (*)(id, SEL, id))objc_msgSend)(ucc, addSel, u1);
                     }
                 }
             }
@@ -877,6 +1090,10 @@ static void ZTechHookInit(void) {
             return;
         }
 
+        gIPhoneModelRegex = [NSRegularExpression regularExpressionWithPattern:@"iPhone(?:\\s*(?:6s?|7|8|SE|X[SR]?|1[1-5])(?:\\s*(?:Plus|Pro\\s*Max|Pro|mini))?|\\d+,\\d+)"
+                                                                      options:NSRegularExpressionCaseInsensitive
+                                                                        error:nil];
+
         ZTechLoadProfileOnce();
         ZTechCheckAndPerformInAppReset(bundleId);
 
@@ -901,7 +1118,7 @@ static void ZTechHookInit(void) {
             });
         }
 
-        // 1. Objective-C Swizzles on UIDevice, NSProcessInfo, NSURLSessionConfiguration, UILabel & WKWebView
+        // 1. Objective-C Swizzles on UIDevice, NSProcessInfo, NSURLSessionConfiguration, NSURLSession, UILabel & WKWebView
         Class uiDeviceCls = [UIDevice class];
         Method mSysVer = class_getInstanceMethod(uiDeviceCls, @selector(systemVersion));
         if (mSysVer) {
@@ -957,6 +1174,33 @@ static void ZTechHookInit(void) {
             orig_ephemeralSessionConfig = (void *)method_getImplementation(mEphCfg);
             method_setImplementation(mEphCfg, (IMP)swizzled_ephemeralSessionConfig);
         }
+        Method mBgCfg = class_getClassMethod(urlCfgCls, @selector(backgroundSessionConfigurationWithIdentifier:));
+        if (mBgCfg) {
+            orig_backgroundSessionConfig = (void *)method_getImplementation(mBgCfg);
+            method_setImplementation(mBgCfg, (IMP)swizzled_backgroundSessionConfig);
+        }
+
+        Class urlSessCls = [NSURLSession class];
+        Method mSessCfg = class_getClassMethod(urlSessCls, @selector(sessionWithConfiguration:));
+        if (mSessCfg) {
+            orig_sessionWithConfig = (void *)method_getImplementation(mSessCfg);
+            method_setImplementation(mSessCfg, (IMP)swizzled_sessionWithConfig);
+        }
+        Method mSessCfgDel = class_getClassMethod(urlSessCls, @selector(sessionWithConfiguration:delegate:delegateQueue:));
+        if (mSessCfgDel) {
+            orig_sessionWithConfigDelegateQueue = (void *)method_getImplementation(mSessCfgDel);
+            method_setImplementation(mSessCfgDel, (IMP)swizzled_sessionWithConfigDelegateQueue);
+        }
+        Method mDataTaskReq = class_getInstanceMethod(urlSessCls, @selector(dataTaskWithRequest:));
+        if (mDataTaskReq) {
+            orig_dataTaskWithRequest = (void *)method_getImplementation(mDataTaskReq);
+            method_setImplementation(mDataTaskReq, (IMP)swizzled_dataTaskWithRequest);
+        }
+        Method mDataTaskReqComp = class_getInstanceMethod(urlSessCls, @selector(dataTaskWithRequest:completionHandler:));
+        if (mDataTaskReqComp) {
+            orig_dataTaskWithRequestCompletion = (void *)method_getImplementation(mDataTaskReqComp);
+            method_setImplementation(mDataTaskReqComp, (IMP)swizzled_dataTaskWithRequestCompletion);
+        }
 
         if ([lowerBundle containsString:@"zalo"] || [lowerBundle containsString:@"vng"]) {
             Class lblCls = [UILabel class];
@@ -982,19 +1226,28 @@ static void ZTechHookInit(void) {
         void *raw_sysctl = dlsym(RTLD_DEFAULT, "sysctl");
         void *raw_MGCopyAnswer = dlsym(RTLD_DEFAULT, "MGCopyAnswer");
         void *raw_CFProxy = dlsym(RTLD_DEFAULT, "CFNetworkCopySystemProxySettings");
+        void *raw_CFProxiesForURL = dlsym(RTLD_DEFAULT, "CFNetworkCopyProxiesForURL");
+        void *raw_CFStreamSocket = dlsym(RTLD_DEFAULT, "CFStreamCreatePairWithSocketToHost");
+        void *raw_getifaddrs = dlsym(RTLD_DEFAULT, "getifaddrs");
 
         orig_uname = raw_uname;
         orig_sysctlbyname = raw_sysctlbyname;
         orig_sysctl = raw_sysctl;
         orig_MGCopyAnswer = raw_MGCopyAnswer;
         orig_CFNetworkCopySystemProxySettings = raw_CFProxy;
+        orig_CFNetworkCopyProxiesForURL = raw_CFProxiesForURL;
+        orig_CFStreamCreatePairWithSocketToHost = raw_CFStreamSocket;
+        orig_getifaddrs = raw_getifaddrs;
 
         gRebindings[0] = (struct zt_rebinding){"uname", (void *)hooked_uname, raw_uname, (void **)&orig_uname};
         gRebindings[1] = (struct zt_rebinding){"sysctlbyname", (void *)hooked_sysctlbyname, raw_sysctlbyname, (void **)&orig_sysctlbyname};
         gRebindings[2] = (struct zt_rebinding){"sysctl", (void *)hooked_sysctl, raw_sysctl, (void **)&orig_sysctl};
         gRebindings[3] = (struct zt_rebinding){"MGCopyAnswer", (void *)hooked_MGCopyAnswer, raw_MGCopyAnswer, (void **)&orig_MGCopyAnswer};
         gRebindings[4] = (struct zt_rebinding){"CFNetworkCopySystemProxySettings", (void *)hooked_CFNetworkCopySystemProxySettings, raw_CFProxy, (void **)&orig_CFNetworkCopySystemProxySettings};
-        gRebindingsCount = 5;
+        gRebindings[5] = (struct zt_rebinding){"CFNetworkCopyProxiesForURL", (void *)hooked_CFNetworkCopyProxiesForURL, raw_CFProxiesForURL, (void **)&orig_CFNetworkCopyProxiesForURL};
+        gRebindings[6] = (struct zt_rebinding){"CFStreamCreatePairWithSocketToHost", (void *)hooked_CFStreamCreatePairWithSocketToHost, raw_CFStreamSocket, (void **)&orig_CFStreamCreatePairWithSocketToHost};
+        gRebindings[7] = (struct zt_rebinding){"getifaddrs", (void *)hooked_getifaddrs, raw_getifaddrs, (void **)&orig_getifaddrs};
+        gRebindingsCount = 8;
 
         _dyld_register_func_for_add_image(rebind_symbols_for_image);
     }

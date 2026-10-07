@@ -573,13 +573,14 @@ extern char **environ;
             acc.deviceProfileDict = profMut;
             found = YES;
 
-            // If this account is currently active, immediately apply the new proxy to active profile
+            // If this account is currently active, immediately apply the new proxy to active profile and restart Zalo sockets
             if ([[self activeAccountId] isEqualToString:accountId]) {
                 ZTechDeviceProfile *cur = [ZTechDeviceDatabase loadOrCreateDefaultProfile];
                 cur.activeProxy = cleanProxy;
                 [ZTechDeviceDatabase writeProfileFiles:cur error:nil];
                 [[NSUserDefaults standardUserDefaults] setObject:[cur toDictionary] forKey:@"ZTechCurrentProfile"];
                 [[NSUserDefaults standardUserDefaults] synchronize];
+                [self killZaloProcess];
             }
             break;
         }

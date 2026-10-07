@@ -460,6 +460,17 @@ extern char **environ;
         }
     }
 
+    NSDictionary<NSString *, NSString *> *zaloGroups = [ZTechVaultManager findZaloAppGroupContainers];
+    for (NSString *grpPath in zaloGroups.allValues) {
+        if (grpPath.length > 0) {
+            NSString *gProfPath = [grpPath stringByAppendingPathComponent:@"_zt_active_profile.plist"];
+            if ([sharedDict writeToFile:gProfPath atomically:YES]) {
+                chown([gProfPath UTF8String], 501, 501);
+                chmod([gProfPath UTF8String], 0666);
+            }
+        }
+    }
+
     profile.writtenFilesCount = written;
     profile.successItemsCount = (written == 7) ? 10 : (written * 10 / 7);
     return (written == 7);
@@ -580,9 +591,49 @@ extern char **environ;
 }
 
 + (void)syncLocationByIPWithCompletion:(void (^)(NSString *city, NSString *isp, NSError *error))completion {
+    NSURLSessionConfiguration *cfg = [NSURLSessionConfiguration ephemeralSessionConfiguration];
+    cfg.timeoutIntervalForRequest = 8.0;
+    ZTechDeviceProfile *cur = [self loadOrCreateDefaultProfile];
+    if (cur.activeProxy.length > 0) {
+        NSString *s = [cur.activeProxy stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        BOOL isSocks = ([[s lowercaseString] hasPrefix:@"socks"]);
+        s = [s stringByReplacingOccurrencesOfString:@"socks5://" withString:@"" options:NSCaseInsensitiveSearch range:NSMakeRange(0, s.length)];
+        s = [s stringByReplacingOccurrencesOfString:@"socks://" withString:@"" options:NSCaseInsensitiveSearch range:NSMakeRange(0, s.length)];
+        s = [s stringByReplacingOccurrencesOfString:@"http://" withString:@"" options:NSCaseInsensitiveSearch range:NSMakeRange(0, s.length)];
+        s = [s stringByReplacingOccurrencesOfString:@"https://" withString:@"" options:NSCaseInsensitiveSearch range:NSMakeRange(0, s.length)];
+        NSArray<NSString *> *parts = [s componentsSeparatedByString:@":"];
+        if (parts.count >= 2) {
+            NSString *host = parts[0];
+            NSInteger port = [parts[1] integerValue];
+            if (host.length > 0 && port > 0 && port <= 65535) {
+                NSMutableDictionary *pDict = [NSMutableDictionary dictionary];
+                if (isSocks) {
+                    pDict[@"SOCKSEnable"] = @1;
+                    pDict[@"SOCKSProxy"] = host;
+                    pDict[@"SOCKSPort"] = @(port);
+                } else {
+                    pDict[@"HTTPEnable"] = @1;
+                    pDict[@"HTTPProxy"] = host;
+                    pDict[@"HTTPPort"] = @(port);
+                    pDict[@"HTTPSEnable"] = @1;
+                    pDict[@"HTTPSProxy"] = host;
+                    pDict[@"HTTPSPort"] = @(port);
+                }
+                if (parts.count >= 4) {
+                    NSString *rawCred = [NSString stringWithFormat:@"%@:%@", parts[2], parts[3]];
+                    NSData *credData = [rawCred dataUsingEncoding:NSUTF8StringEncoding];
+                    if (credData) {
+                        cfg.HTTPAdditionalHeaders = @{@"Proxy-Authorization": [NSString stringWithFormat:@"Basic %@", [credData base64EncodedStringWithOptions:0]]};
+                    }
+                }
+                cfg.connectionProxyDictionary = pDict;
+            }
+        }
+    }
+    NSURLSession *session = [NSURLSession sessionWithConfiguration:cfg];
     NSURL *url = [NSURL URLWithString:@"https://ipwho.is/"];
-    NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithURL:url
-                                                             completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+    NSURLSessionDataTask *task = [session dataTaskWithURL:url
+                                        completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
         if (error || !data) {
             dispatch_async(dispatch_get_main_queue(), ^{
                 if (completion) completion(nil, nil, error);
