@@ -1,8 +1,8 @@
 Package: com.ztech.devicechanger
 Name: gaulmt -Tech
-Version: 4.7.0
+Version: 4.8.0
 Architecture: iphoneos-arm
-Description: gaulmt -Tech v4.7 - Giao dien 3 Tab Chuyen Nghiep (SF Symbols) + iPhone 16 Series + Kho Acc Zalo & Proxy
+Description: gaulmt -Tech v4.8 - He thong Icon SVG Duotone Thuong Mai + 3 Tab UI + iPhone 16 Series + Kho Acc Zalo & Proxy
 Maintainer: gaulmt -Tech
 Author: gaulmt -Tech
 Section: Utilities
