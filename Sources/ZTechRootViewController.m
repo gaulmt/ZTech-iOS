@@ -228,7 +228,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
     [btn setTitleColor:tintColor forState:UIControlStateNormal];
     btn.titleLabel.font = font;
     btn.tintColor = tintColor;
-    UIImage *img = (symbolName.length > 0) ? [self sfSymbol:symbolName size:(font.pointSize - 1.0) weight:UIFontWeightSemibold] : nil;
+    UIImage *img = (symbolName.length > 0) ? [self sfSymbol:symbolName size:(font.pointSize - 1.0) weight:UIImageSymbolWeightSemibold] : nil;
     if (img) {
         [btn setImage:img forState:UIControlStateNormal];
         [btn setTitle:[NSString stringWithFormat:@"  %@", title] forState:UIControlStateNormal];
@@ -259,7 +259,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
     iconBadge.layer.borderWidth = 1.0;
     iconBadge.layer.borderColor = [UIColor colorWithRed:0.32 green:0.28 blue:0.18 alpha:1.0].CGColor;
 
-    UIImageView *iv = [[UIImageView alloc] initWithImage:[self sfSymbol:symbolName size:14.0 weight:UIFontWeightBold]];
+    UIImageView *iv = [[UIImageView alloc] initWithImage:[self sfSymbol:symbolName size:14.0 weight:UIImageSymbolWeightBold]];
     iv.translatesAutoresizingMaskIntoConstraints = NO;
     iv.tintColor = [self goldAccentColor];
     iv.contentMode = UIViewContentModeScaleAspectFit;
@@ -323,7 +323,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
     logoBox.layer.borderWidth = 1.4;
     logoBox.layer.borderColor = [self goldAccentColor].CGColor;
 
-    UIImageView *shieldIv = [[UIImageView alloc] initWithImage:[self sfSymbol:@"shield.lefthalf.filled" size:18.0 weight:UIFontWeightBold]];
+    UIImageView *shieldIv = [[UIImageView alloc] initWithImage:[self sfSymbol:@"shield.lefthalf.filled" size:18.0 weight:UIImageSymbolWeightBold]];
     shieldIv.translatesAutoresizingMaskIntoConstraints = NO;
     shieldIv.tintColor = [self goldAccentColor];
     [logoBox addSubview:shieldIv];
@@ -347,7 +347,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
     self.headerLicenseBadge.layer.borderWidth = 1.0;
     self.headerLicenseBadge.layer.borderColor = [UIColor colorWithRed:0.20 green:0.45 blue:0.25 alpha:1.0].CGColor;
 
-    self.headerLicenseIcon = [[UIImageView alloc] initWithImage:[self sfSymbol:@"checkmark.shield.fill" size:12.0 weight:UIFontWeightBold]];
+    self.headerLicenseIcon = [[UIImageView alloc] initWithImage:[self sfSymbol:@"checkmark.shield.fill" size:12.0 weight:UIImageSymbolWeightBold]];
     self.headerLicenseIcon.translatesAutoresizingMaskIntoConstraints = NO;
     self.headerLicenseIcon.tintColor = [self emeraldColor];
 
@@ -417,7 +417,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
 
     self.toastBannerLabel = [[UILabel alloc] init];
     self.toastBannerLabel.translatesAutoresizingMaskIntoConstraints = NO;
-    self.toastBannerLabel.font = [UIFont systemFontOfSize:13.0 weight:UIFontWeightBold];
+    self.toastBannerLabel.font = [UIFont systemFontOfSize:13.0 weight:UIImageSymbolWeightBold];
     self.toastBannerLabel.textColor = [UIColor whiteColor];
     self.toastBannerLabel.textAlignment = NSTextAlignmentCenter;
     self.toastBannerLabel.numberOfLines = 2;
@@ -501,7 +501,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
         pillIndicator.layer.cornerRadius = 1.5;
         [tabCtrl addSubview:pillIndicator];
 
-        UIImageView *iv = [[UIImageView alloc] initWithImage:[self sfSymbol:def[@"symbol"] size:19.0 weight:UIFontWeightSemibold]];
+        UIImageView *iv = [[UIImageView alloc] initWithImage:[self sfSymbol:def[@"symbol"] size:19.0 weight:UIImageSymbolWeightSemibold]];
         iv.translatesAutoresizingMaskIntoConstraints = NO;
         iv.contentMode = UIViewContentModeScaleAspectFit;
         [tabCtrl addSubview:iv];
@@ -509,7 +509,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
         UILabel *lbl = [[UILabel alloc] init];
         lbl.translatesAutoresizingMaskIntoConstraints = NO;
         lbl.text = def[@"title"];
-        lbl.font = [UIFont systemFontOfSize:11.5 weight:UIFontWeightBold];
+        lbl.font = [UIFont systemFontOfSize:11.5 weight:UIImageSymbolWeightBold];
         lbl.textAlignment = NSTextAlignmentCenter;
         [tabCtrl addSubview:lbl];
 
@@ -642,19 +642,19 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
     tile.layer.borderWidth = 1.0;
     tile.layer.borderColor = [self borderSubtleColor].CGColor;
 
-    UIImageView *iv = [[UIImageView alloc] initWithImage:[self sfSymbol:symbol size:13.0 weight:UIFontWeightSemibold]];
+    UIImageView *iv = [[UIImageView alloc] initWithImage:[self sfSymbol:symbol size:13.0 weight:UIImageSymbolWeightSemibold]];
     iv.translatesAutoresizingMaskIntoConstraints = NO;
     iv.tintColor = [self goldAccentColor];
 
     UILabel *tLbl = [[UILabel alloc] init];
     tLbl.translatesAutoresizingMaskIntoConstraints = NO;
     tLbl.text = title;
-    tLbl.font = [UIFont systemFontOfSize:11.0 weight:UIFontWeightSemibold];
+    tLbl.font = [UIFont systemFontOfSize:11.0 weight:UIImageSymbolWeightSemibold];
     tLbl.textColor = [self mutedTextColor];
 
     UILabel *vLbl = [[UILabel alloc] init];
     vLbl.translatesAutoresizingMaskIntoConstraints = NO;
-    vLbl.font = [UIFont systemFontOfSize:13.5 weight:UIFontWeightBold];
+    vLbl.font = [UIFont systemFontOfSize:13.5 weight:UIImageSymbolWeightBold];
     vLbl.textColor = [UIColor whiteColor];
     vLbl.adjustsFontSizeToFitWidth = YES;
     vLbl.minimumScaleFactor = 0.8;
@@ -702,7 +702,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
                 title:@"Sao chép"
                symbol:@"doc.on.doc.fill"
             tintColor:[self goldAccentColor]
-                 font:[UIFont systemFontOfSize:11.5 weight:UIFontWeightBold]];
+                 font:[UIFont systemFontOfSize:11.5 weight:UIImageSymbolWeightBold]];
     [self.btnCopyReport addTarget:self action:@selector(onTapCopyReport) forControlEvents:UIControlEventTouchUpInside];
 
     UIView *idHeader = [self createSectionHeaderWithSymbol:@"iphone"
@@ -729,7 +729,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
     self.machineBadgeLabel.backgroundColor = [UIColor colorWithRed:0.16 green:0.15 blue:0.10 alpha:1.0];
     self.machineBadgeLabel.layer.cornerRadius = 6.0;
     self.machineBadgeLabel.layer.masksToBounds = YES;
-    self.machineBadgeLabel.font = [UIFont monospacedSystemFontOfSize:11.5 weight:UIFontWeightBold];
+    self.machineBadgeLabel.font = [UIFont monospacedSystemFontOfSize:11.5 weight:UIImageSymbolWeightBold];
     self.machineBadgeLabel.textColor = [self goldAccentColor];
     self.machineBadgeLabel.textAlignment = NSTextAlignmentCenter;
 
@@ -738,7 +738,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
     self.iosBadgeLabel.backgroundColor = [UIColor colorWithRed:0.10 green:0.18 blue:0.12 alpha:1.0];
     self.iosBadgeLabel.layer.cornerRadius = 6.0;
     self.iosBadgeLabel.layer.masksToBounds = YES;
-    self.iosBadgeLabel.font = [UIFont systemFontOfSize:11.5 weight:UIFontWeightBold];
+    self.iosBadgeLabel.font = [UIFont systemFontOfSize:11.5 weight:UIImageSymbolWeightBold];
     self.iosBadgeLabel.textColor = [self emeraldColor];
     self.iosBadgeLabel.textAlignment = NSTextAlignmentCenter;
 
@@ -801,7 +801,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
     // 3-Button Model Tier Segmented Bar
     UILabel *tierCaption = [[UILabel alloc] init];
     tierCaption.text = @"CHỌN PHÂN KHÚC ĐỜI MÁY KHI RANDOM:";
-    tierCaption.font = [UIFont systemFontOfSize:11.0 weight:UIFontWeightBold];
+    tierCaption.font = [UIFont systemFontOfSize:11.0 weight:UIImageSymbolWeightBold];
     tierCaption.textColor = [self mutedTextColor];
     [idStack addArrangedSubview:tierCaption];
 
@@ -821,7 +821,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
         b.layer.cornerRadius = 9.0;
         b.layer.borderWidth = 1.0;
         [b setTitle:segTitles[i] forState:UIControlStateNormal];
-        b.titleLabel.font = [UIFont systemFontOfSize:12.0 weight:UIFontWeightBold];
+        b.titleLabel.font = [UIFont systemFontOfSize:12.0 weight:UIImageSymbolWeightBold];
         [b addTarget:self action:@selector(onTapSelectModelTierSegment:) forControlEvents:UIControlEventTouchUpInside];
         [segRow addArrangedSubview:b];
         [segBtns addObject:b];
@@ -870,7 +870,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
                 title:@"Làm mới dữ liệu Zalo & Tạo phiên mới"
                symbol:@"arrow.counterclockwise"
             tintColor:[self goldAccentColor]
-                 font:[UIFont systemFontOfSize:15.0 weight:UIFontWeightBold]];
+                 font:[UIFont systemFontOfSize:15.0 weight:UIImageSymbolWeightBold]];
     [self.cleanResetButton.heightAnchor constraintEqualToConstant:48.0].active = YES;
     [self.cleanResetButton addTarget:self action:@selector(onTapCleanReset) forControlEvents:UIControlEventTouchUpInside];
 
@@ -889,7 +889,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
                 title:@"Đồng bộ vị trí IP"
                symbol:@"location.fill"
             tintColor:[UIColor whiteColor]
-                 font:[UIFont systemFontOfSize:13.5 weight:UIFontWeightBold]];
+                 font:[UIFont systemFontOfSize:13.5 weight:UIImageSymbolWeightBold]];
     [self.syncIPButton addTarget:self action:@selector(onTapSyncIP) forControlEvents:UIControlEventTouchUpInside];
 
     self.openZaloButton = [UIButton buttonWithType:UIButtonTypeSystem];
@@ -901,7 +901,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
                 title:@"Mở ứng dụng Zalo"
                symbol:@"play.fill"
             tintColor:[self emeraldColor]
-                 font:[UIFont systemFontOfSize:13.5 weight:UIFontWeightBold]];
+                 font:[UIFont systemFontOfSize:13.5 weight:UIImageSymbolWeightBold]];
     [self.openZaloButton addTarget:self action:@selector(onTapQuickLaunchZalo) forControlEvents:UIControlEventTouchUpInside];
 
     [subActRow addArrangedSubview:self.syncIPButton];
@@ -1028,21 +1028,21 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
     row.layer.borderWidth = 1.0;
     row.layer.borderColor = [self borderSubtleColor].CGColor;
 
-    UIImageView *iv = [[UIImageView alloc] initWithImage:[self sfSymbol:symbol size:14.0 weight:UIFontWeightSemibold]];
+    UIImageView *iv = [[UIImageView alloc] initWithImage:[self sfSymbol:symbol size:14.0 weight:UIImageSymbolWeightSemibold]];
     iv.translatesAutoresizingMaskIntoConstraints = NO;
     iv.tintColor = [self goldAccentColor];
 
     UILabel *titleLabel = [[UILabel alloc] init];
     titleLabel.translatesAutoresizingMaskIntoConstraints = NO;
     titleLabel.text = title;
-    titleLabel.font = [UIFont systemFontOfSize:14.0 weight:UIFontWeightBold];
+    titleLabel.font = [UIFont systemFontOfSize:14.0 weight:UIImageSymbolWeightBold];
     titleLabel.textColor = [UIColor whiteColor];
     titleLabel.adjustsFontSizeToFitWidth = YES;
 
     UILabel *subLabel = [[UILabel alloc] init];
     subLabel.translatesAutoresizingMaskIntoConstraints = NO;
     subLabel.text = subtitle;
-    subLabel.font = [UIFont systemFontOfSize:11.5 weight:UIFontWeightRegular];
+    subLabel.font = [UIFont systemFontOfSize:11.5 weight:UIImageSymbolWeightRegular];
     subLabel.textColor = [self mutedTextColor];
     subLabel.numberOfLines = 0;
 
@@ -1117,7 +1117,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
     self.vaultCountBadgeLabel.backgroundColor = [UIColor colorWithRed:0.10 green:0.18 blue:0.12 alpha:1.0];
     self.vaultCountBadgeLabel.layer.cornerRadius = 8.0;
     self.vaultCountBadgeLabel.layer.masksToBounds = YES;
-    self.vaultCountBadgeLabel.font = [UIFont systemFontOfSize:11.5 weight:UIFontWeightBold];
+    self.vaultCountBadgeLabel.font = [UIFont systemFontOfSize:11.5 weight:UIImageSymbolWeightBold];
     self.vaultCountBadgeLabel.textColor = [self emeraldColor];
     self.vaultCountBadgeLabel.textAlignment = NSTextAlignmentCenter;
 
@@ -1128,7 +1128,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
 
     UILabel *guideLbl = [[UILabel alloc] init];
     guideLbl.text = @"Lưu trọn bộ dữ liệu phiên đăng nhập Zalo + Cấu hình máy ảo + Proxy riêng (HTTP/SOCKS5). Khi muốn vào lại Acc nào chỉ cần nhấn [Bơm & Mở Zalo].";
-    guideLbl.font = [UIFont systemFontOfSize:12.5 weight:UIFontWeightRegular];
+    guideLbl.font = [UIFont systemFontOfSize:12.5 weight:UIImageSymbolWeightRegular];
     guideLbl.textColor = [self mutedTextColor];
     guideLbl.numberOfLines = 0;
     [hStack addArrangedSubview:guideLbl];
@@ -1141,13 +1141,13 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
     proxyBanner.layer.borderWidth = 1.0;
     proxyBanner.layer.borderColor = [self borderSubtleColor].CGColor;
 
-    UIImageView *netIv = [[UIImageView alloc] initWithImage:[self sfSymbol:@"network" size:14.0 weight:UIFontWeightBold]];
+    UIImageView *netIv = [[UIImageView alloc] initWithImage:[self sfSymbol:@"network" size:14.0 weight:UIImageSymbolWeightBold]];
     netIv.translatesAutoresizingMaskIntoConstraints = NO;
     netIv.tintColor = [self goldAccentColor];
 
     self.activeProxyStatusLabel = [[UILabel alloc] init];
     self.activeProxyStatusLabel.translatesAutoresizingMaskIntoConstraints = NO;
-    self.activeProxyStatusLabel.font = [UIFont systemFontOfSize:12.5 weight:UIFontWeightBold];
+    self.activeProxyStatusLabel.font = [UIFont systemFontOfSize:12.5 weight:UIImageSymbolWeightBold];
     self.activeProxyStatusLabel.textColor = [UIColor whiteColor];
     self.activeProxyStatusLabel.adjustsFontSizeToFitWidth = YES;
 
@@ -1190,7 +1190,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
                 title:@"Cài Proxy"
                symbol:@"network"
             tintColor:[self goldAccentColor]
-                 font:[UIFont systemFontOfSize:13.0 weight:UIFontWeightBold]];
+                 font:[UIFont systemFontOfSize:13.0 weight:UIImageSymbolWeightBold]];
     [btnSetProxy.widthAnchor constraintEqualToConstant:114.0].active = YES;
     [btnSetProxy addTarget:self action:@selector(onTapEditCurrentSessionProxy) forControlEvents:UIControlEventTouchUpInside];
 
@@ -1240,17 +1240,17 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
         eStack.spacing = 8.0;
         [emptyCard addSubview:eStack];
 
-        UIImageView *emptyIv = [[UIImageView alloc] initWithImage:[self sfSymbol:@"archivebox.fill" size:32.0 weight:UIFontWeightRegular]];
+        UIImageView *emptyIv = [[UIImageView alloc] initWithImage:[self sfSymbol:@"archivebox.fill" size:32.0 weight:UIImageSymbolWeightRegular]];
         emptyIv.tintColor = [self goldAccentColor];
 
         UILabel *eTitle = [[UILabel alloc] init];
         eTitle.text = @"Kho Lưu Trữ Đang Trống";
-        eTitle.font = [UIFont systemFontOfSize:15.5 weight:UIFontWeightBold];
+        eTitle.font = [UIFont systemFontOfSize:15.5 weight:UIImageSymbolWeightBold];
         eTitle.textColor = [UIColor whiteColor];
 
         UILabel *eSub = [[UILabel alloc] init];
         eSub.text = @"1. Đăng nhập tài khoản Zalo trên máy.\n2. Quay lại tab này bấm [Lưu Acc hiện tại vào Kho] và gắn Proxy (nếu cần).\n3. Từ lần sau chỉ cần bấm [Bơm & Mở Zalo] để vào lại ngay.";
-        eSub.font = [UIFont systemFontOfSize:12.5 weight:UIFontWeightRegular];
+        eSub.font = [UIFont systemFontOfSize:12.5 weight:UIImageSymbolWeightRegular];
         eSub.textColor = [self mutedTextColor];
         eSub.textAlignment = NSTextAlignmentCenter;
         eSub.numberOfLines = 0;
@@ -1299,7 +1299,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
         UILabel *badgeLbl = [[UILabel alloc] init];
         badgeLbl.translatesAutoresizingMaskIntoConstraints = NO;
         badgeLbl.text = isActive ? @"  ĐANG DÙNG  " : [NSString stringWithFormat:@"  %@  ", acc.createdAt];
-        badgeLbl.font = [UIFont systemFontOfSize:10.5 weight:UIFontWeightBold];
+        badgeLbl.font = [UIFont systemFontOfSize:10.5 weight:UIImageSymbolWeightBold];
         badgeLbl.textColor = isActive ? [self emeraldColor] : [self mutedTextColor];
         badgeLbl.backgroundColor = isActive
             ? [UIColor colorWithRed:0.08 green:0.18 blue:0.11 alpha:1.0]
@@ -1328,18 +1328,18 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
         infoBox.layer.borderWidth = 1.0;
         infoBox.layer.borderColor = [self borderSubtleColor].CGColor;
 
-        UIImageView *devIv = [[UIImageView alloc] initWithImage:[self sfSymbol:@"iphone" size:12.5 weight:UIFontWeightSemibold]];
+        UIImageView *devIv = [[UIImageView alloc] initWithImage:[self sfSymbol:@"iphone" size:12.5 weight:UIImageSymbolWeightSemibold]];
         devIv.translatesAutoresizingMaskIntoConstraints = NO;
         devIv.tintColor = [self goldAccentColor];
 
         UILabel *devLbl = [[UILabel alloc] init];
         devLbl.translatesAutoresizingMaskIntoConstraints = NO;
         devLbl.text = [acc shortDeviceSummary];
-        devLbl.font = [UIFont systemFontOfSize:12.5 weight:UIFontWeightBold];
+        devLbl.font = [UIFont systemFontOfSize:12.5 weight:UIImageSymbolWeightBold];
         devLbl.textColor = [self goldAccentColor];
         devLbl.adjustsFontSizeToFitWidth = YES;
 
-        UIImageView *prxIv = [[UIImageView alloc] initWithImage:[self sfSymbol:@"network" size:12.5 weight:UIFontWeightSemibold]];
+        UIImageView *prxIv = [[UIImageView alloc] initWithImage:[self sfSymbol:@"network" size:12.5 weight:UIImageSymbolWeightSemibold]];
         prxIv.translatesAutoresizingMaskIntoConstraints = NO;
         BOOL hasProxy = (acc.proxyString.length > 0);
         prxIv.tintColor = hasProxy ? [self emeraldColor] : [self mutedTextColor];
@@ -1349,7 +1349,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
         prxLbl.text = hasProxy
             ? [NSString stringWithFormat:@"Proxy: %@", acc.proxyString]
             : @"Mạng trực tiếp (Không gắn Proxy / 4G)";
-        prxLbl.font = [UIFont systemFontOfSize:12.0 weight:UIFontWeightSemibold];
+        prxLbl.font = [UIFont systemFontOfSize:12.0 weight:UIImageSymbolWeightSemibold];
         prxLbl.textColor = hasProxy ? [self emeraldColor] : [self mutedTextColor];
         prxLbl.adjustsFontSizeToFitWidth = YES;
 
@@ -1404,7 +1404,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
                     title:@"Proxy / Tên"
                    symbol:@"slider.horizontal.3"
                 tintColor:[self goldAccentColor]
-                     font:[UIFont systemFontOfSize:12.0 weight:UIFontWeightBold]];
+                     font:[UIFont systemFontOfSize:12.0 weight:UIImageSymbolWeightBold]];
         [btnEdit.widthAnchor constraintEqualToConstant:106.0].active = YES;
         [btnEdit addTarget:self action:@selector(onTapEditVaultAccount:) forControlEvents:UIControlEventTouchUpInside];
 
@@ -1419,7 +1419,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
                     title:(isConfirmingDel ? @"Xoá?" : @"Xoá")
                    symbol:@"trash.fill"
                 tintColor:[UIColor colorWithRed:1.0 green:0.65 blue:0.65 alpha:1.0]
-                     font:[UIFont systemFontOfSize:12.0 weight:UIFontWeightBold]];
+                     font:[UIFont systemFontOfSize:12.0 weight:UIImageSymbolWeightBold]];
         [btnDel.widthAnchor constraintEqualToConstant:68.0].active = YES;
         [btnDel addTarget:self action:@selector(onTapDeleteVaultAccount:) forControlEvents:UIControlEventTouchUpInside];
 
@@ -1451,12 +1451,12 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
     UILabel *kLbl = [[UILabel alloc] init];
     kLbl.translatesAutoresizingMaskIntoConstraints = NO;
     kLbl.text = label;
-    kLbl.font = [UIFont systemFontOfSize:11.5 weight:UIFontWeightSemibold];
+    kLbl.font = [UIFont systemFontOfSize:11.5 weight:UIImageSymbolWeightSemibold];
     kLbl.textColor = [self mutedTextColor];
 
     UILabel *vLbl = [[UILabel alloc] init];
     vLbl.translatesAutoresizingMaskIntoConstraints = NO;
-    vLbl.font = [UIFont systemFontOfSize:14.0 weight:UIFontWeightBold];
+    vLbl.font = [UIFont systemFontOfSize:14.0 weight:UIImageSymbolWeightBold];
     vLbl.textColor = [UIColor whiteColor];
     vLbl.adjustsFontSizeToFitWidth = YES;
 
@@ -1498,7 +1498,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
     stateBox.layer.borderWidth = 1.2;
     stateBox.layer.borderColor = [self goldAccentColor].CGColor;
 
-    self.licShieldIconView = [[UIImageView alloc] initWithImage:[self sfSymbol:@"checkmark.shield.fill" size:28.0 weight:UIFontWeightBold]];
+    self.licShieldIconView = [[UIImageView alloc] initWithImage:[self sfSymbol:@"checkmark.shield.fill" size:28.0 weight:UIImageSymbolWeightBold]];
     self.licShieldIconView.translatesAutoresizingMaskIntoConstraints = NO;
     self.licShieldIconView.tintColor = [self emeraldColor];
 
@@ -1557,7 +1557,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
                 title:@"Nhập / Đổi Mã Key Bản Quyền Khác"
                symbol:@"key.fill"
             tintColor:[self goldAccentColor]
-                 font:[UIFont systemFontOfSize:14.0 weight:UIFontWeightBold]];
+                 font:[UIFont systemFontOfSize:14.0 weight:UIImageSymbolWeightBold]];
     [btnChangeKey.heightAnchor constraintEqualToConstant:46.0].active = YES;
     [btnChangeKey addTarget:self action:@selector(onTapShowKeyModal) forControlEvents:UIControlEventTouchUpInside];
 
@@ -1570,7 +1570,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
                 title:@"Sao chép Mã máy (HWID) gửi Admin"
                symbol:@"doc.on.doc.fill"
             tintColor:[UIColor whiteColor]
-                 font:[UIFont systemFontOfSize:13.5 weight:UIFontWeightBold]];
+                 font:[UIFont systemFontOfSize:13.5 weight:UIImageSymbolWeightBold]];
     [btnCopyHWID.heightAnchor constraintEqualToConstant:44.0].active = YES;
     [btnCopyHWID addTarget:self action:@selector(onTapCopyHWID) forControlEvents:UIControlEventTouchUpInside];
 
@@ -1641,7 +1641,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
 
     UILabel *hintLbl = [[UILabel alloc] init];
     hintLbl.text = @"Hỗ trợ Proxy HTTP / SOCKS5 định dạng IP:Port hoặc IP:Port:User:Pass.\nBấm [Dán Proxy đã Copy] hoặc gõ trực tiếp bên dưới:";
-    hintLbl.font = [UIFont systemFontOfSize:12.0 weight:UIFontWeightRegular];
+    hintLbl.font = [UIFont systemFontOfSize:12.0 weight:UIImageSymbolWeightRegular];
     hintLbl.textColor = [self mutedTextColor];
     hintLbl.textAlignment = NSTextAlignmentCenter;
     hintLbl.numberOfLines = 0;
@@ -1652,7 +1652,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
     self.vaultNameDisplayLabel.layer.masksToBounds = YES;
     self.vaultNameDisplayLabel.layer.borderWidth = 1.0;
     self.vaultNameDisplayLabel.layer.borderColor = [self borderSubtleColor].CGColor;
-    self.vaultNameDisplayLabel.font = [UIFont systemFontOfSize:13.5 weight:UIFontWeightBold];
+    self.vaultNameDisplayLabel.font = [UIFont systemFontOfSize:13.5 weight:UIImageSymbolWeightBold];
     self.vaultNameDisplayLabel.textColor = [UIColor whiteColor];
     self.vaultNameDisplayLabel.textAlignment = NSTextAlignmentCenter;
     [self.vaultNameDisplayLabel.heightAnchor constraintEqualToConstant:40.0].active = YES;
@@ -1663,7 +1663,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
     self.vaultProxyDisplayLabel.layer.masksToBounds = YES;
     self.vaultProxyDisplayLabel.layer.borderWidth = 1.2;
     self.vaultProxyDisplayLabel.layer.borderColor = [self goldAccentColor].CGColor;
-    self.vaultProxyDisplayLabel.font = [UIFont monospacedSystemFontOfSize:13.0 weight:UIFontWeightBold];
+    self.vaultProxyDisplayLabel.font = [UIFont monospacedSystemFontOfSize:13.0 weight:UIImageSymbolWeightBold];
     self.vaultProxyDisplayLabel.textColor = [self emeraldColor];
     self.vaultProxyDisplayLabel.textAlignment = NSTextAlignmentCenter;
     self.vaultProxyDisplayLabel.adjustsFontSizeToFitWidth = YES;
@@ -1684,7 +1684,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
                 title:@"Đổi ô gõ"
                symbol:@"keyboard"
             tintColor:[self goldAccentColor]
-                 font:[UIFont systemFontOfSize:11.5 weight:UIFontWeightBold]];
+                 font:[UIFont systemFontOfSize:11.5 weight:UIImageSymbolWeightBold]];
     [self.btnVaultFieldSwitch addTarget:self action:@selector(onTapToggleVaultField) forControlEvents:UIControlEventTouchUpInside];
 
     UIButton *btnPasteProxy = [UIButton buttonWithType:UIButtonTypeSystem];
@@ -1694,7 +1694,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
                 title:@"Dán Proxy"
                symbol:@"doc.on.clipboard.fill"
             tintColor:[self emeraldColor]
-                 font:[UIFont systemFontOfSize:11.5 weight:UIFontWeightBold]];
+                 font:[UIFont systemFontOfSize:11.5 weight:UIImageSymbolWeightBold]];
     [btnPasteProxy addTarget:self action:@selector(onTapPasteProxyFromClipboard) forControlEvents:UIControlEventTouchUpInside];
 
     UIButton *btnClearProxy = [UIButton buttonWithType:UIButtonTypeSystem];
@@ -1704,7 +1704,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
                 title:@"Xoá Proxy"
                symbol:@"trash.fill"
             tintColor:[UIColor colorWithRed:1.0 green:0.65 blue:0.65 alpha:1.0]
-                 font:[UIFont systemFontOfSize:11.5 weight:UIFontWeightBold]];
+                 font:[UIFont systemFontOfSize:11.5 weight:UIImageSymbolWeightBold]];
     [btnClearProxy addTarget:self action:@selector(onTapClearModalProxy) forControlEvents:UIControlEventTouchUpInside];
 
     [quickRow addArrangedSubview:self.btnVaultFieldSwitch];
@@ -1724,7 +1724,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
     btnCancel.layer.cornerRadius = 12.0;
     [btnCancel setTitle:@"Đóng" forState:UIControlStateNormal];
     [btnCancel setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-    btnCancel.titleLabel.font = [UIFont systemFontOfSize:14.0 weight:UIFontWeightBold];
+    btnCancel.titleLabel.font = [UIFont systemFontOfSize:14.0 weight:UIImageSymbolWeightBold];
     [btnCancel.widthAnchor constraintEqualToConstant:88.0].active = YES;
     [btnCancel addTarget:self action:@selector(onTapCloseVaultModal) forControlEvents:UIControlEventTouchUpInside];
 
@@ -1814,7 +1814,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
             [b setTitle:([kTitle isEqualToString:@" "] ? @"Cách" : kTitle) forState:UIControlStateNormal];
             b.accessibilityLabel = kTitle;
             [b setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-            b.titleLabel.font = [UIFont systemFontOfSize:12.0 weight:UIFontWeightBold];
+            b.titleLabel.font = [UIFont systemFontOfSize:12.0 weight:UIImageSymbolWeightBold];
             b.titleLabel.adjustsFontSizeToFitWidth = YES;
             [b addTarget:self action:@selector(onTapVaultKeypadButton:) forControlEvents:UIControlEventTouchUpInside];
             [rStack addArrangedSubview:b];
@@ -1845,7 +1845,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
                     title:@"Gõ: PROXY"
                    symbol:@"keyboard"
                 tintColor:[self goldAccentColor]
-                     font:[UIFont systemFontOfSize:11.5 weight:UIFontWeightBold]];
+                     font:[UIFont systemFontOfSize:11.5 weight:UIImageSymbolWeightBold]];
     } else {
         self.vaultNameDisplayLabel.layer.borderColor = [self goldAccentColor].CGColor;
         self.vaultProxyDisplayLabel.layer.borderColor = [self borderSubtleColor].CGColor;
@@ -1853,7 +1853,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
                     title:@"Gõ: TÊN ACC"
                    symbol:@"keyboard"
                 tintColor:[self goldAccentColor]
-                     font:[UIFont systemFontOfSize:11.5 weight:UIFontWeightBold]];
+                     font:[UIFont systemFontOfSize:11.5 weight:UIImageSymbolWeightBold]];
     }
 }
 
@@ -2077,7 +2077,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
 
     UILabel *lockSub = [[UILabel alloc] init];
     lockSub.text = @"Cách 1: Gửi Mã máy dưới đây cho Admin duyệt trên Web rồi bấm nút Kích hoạt.\nCách 2: Bấm mở bàn phím Key bên dưới để gõ mã Key.";
-    lockSub.font = [UIFont systemFontOfSize:12.5 weight:UIFontWeightRegular];
+    lockSub.font = [UIFont systemFontOfSize:12.5 weight:UIImageSymbolWeightRegular];
     lockSub.textColor = [self mutedTextColor];
     lockSub.textAlignment = NSTextAlignmentCenter;
     lockSub.numberOfLines = 0;
@@ -2106,7 +2106,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
 
     self.keyDisplayLabel = [[UILabel alloc] init];
     self.keyDisplayLabel.translatesAutoresizingMaskIntoConstraints = NO;
-    self.keyDisplayLabel.font = [UIFont monospacedSystemFontOfSize:14.5 weight:UIFontWeightBold];
+    self.keyDisplayLabel.font = [UIFont monospacedSystemFontOfSize:14.5 weight:UIImageSymbolWeightBold];
     self.keyDisplayLabel.textAlignment = NSTextAlignmentCenter;
     self.keyDisplayLabel.adjustsFontSizeToFitWidth = YES;
     self.keyDisplayLabel.minimumScaleFactor = 0.7;
@@ -2122,7 +2122,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
                 title:@"Gõ mã Key bằng bàn phím trong App"
                symbol:@"keyboard"
             tintColor:[self goldAccentColor]
-                 font:[UIFont systemFontOfSize:13.0 weight:UIFontWeightBold]];
+                 font:[UIFont systemFontOfSize:13.0 weight:UIImageSymbolWeightBold]];
     [self.btnToggleKeypad addTarget:self action:@selector(onTapToggleKeypad) forControlEvents:UIControlEventTouchUpInside];
 
     self.keypadContainerView = [self createInAppKeypadView];
@@ -2150,7 +2150,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
     self.btnCloseKeyOverlay.layer.cornerRadius = 11.0;
     [self.btnCloseKeyOverlay setTitle:@"Quay lại ứng dụng" forState:UIControlStateNormal];
     [self.btnCloseKeyOverlay setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-    self.btnCloseKeyOverlay.titleLabel.font = [UIFont systemFontOfSize:13.5 weight:UIFontWeightBold];
+    self.btnCloseKeyOverlay.titleLabel.font = [UIFont systemFontOfSize:13.5 weight:UIImageSymbolWeightBold];
     [self.btnCloseKeyOverlay.heightAnchor constraintEqualToConstant:42.0].active = YES;
     [self.btnCloseKeyOverlay addTarget:self action:@selector(onTapCloseKeyOverlay) forControlEvents:UIControlEventTouchUpInside];
 
@@ -2239,7 +2239,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
             b.layer.borderColor = [self borderSubtleColor].CGColor;
             [b setTitle:kTitle forState:UIControlStateNormal];
             [b setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-            b.titleLabel.font = [UIFont systemFontOfSize:12.5 weight:UIFontWeightBold];
+            b.titleLabel.font = [UIFont systemFontOfSize:12.5 weight:UIImageSymbolWeightBold];
             b.titleLabel.adjustsFontSizeToFitWidth = YES;
             [b addTarget:self action:@selector(onTapKeypadButton:) forControlEvents:UIControlEventTouchUpInside];
             [rStack addArrangedSubview:b];
@@ -2273,7 +2273,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
                 title:(self.keypadContainerView.hidden ? @"Gõ mã Key bằng bàn phím trong App" : @"Ẩn bàn phím gõ Key")
                symbol:@"keyboard"
             tintColor:[self goldAccentColor]
-                 font:[UIFont systemFontOfSize:13.0 weight:UIFontWeightBold]];
+                 font:[UIFont systemFontOfSize:13.0 weight:UIImageSymbolWeightBold]];
 }
 
 - (void)onTapKeypadButton:(UIButton *)sender {
@@ -2309,7 +2309,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
         self.headerLicenseIcon.tintColor = [self emeraldColor];
         self.headerLicenseBadge.backgroundColor = [UIColor colorWithRed:0.08 green:0.16 blue:0.10 alpha:1.0];
 
-        self.licShieldIconView.image = [self sfSymbol:@"checkmark.shield.fill" size:28.0 weight:UIFontWeightBold];
+        self.licShieldIconView.image = [self sfSymbol:@"checkmark.shield.fill" size:28.0 weight:UIImageSymbolWeightBold];
         self.licShieldIconView.tintColor = [self emeraldColor];
         self.licMainStateLabel.text = @"BẢN QUYỀN ĐANG HOẠT ĐỘNG\nToàn bộ tính năng đã được mở khoá";
         self.licMainStateLabel.textColor = [self emeraldColor];
@@ -2319,7 +2319,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
         self.headerLicenseIcon.tintColor = [self dangerCoralColor];
         self.headerLicenseBadge.backgroundColor = [UIColor colorWithRed:0.20 green:0.08 blue:0.08 alpha:1.0];
 
-        self.licShieldIconView.image = [self sfSymbol:@"lock.shield.fill" size:28.0 weight:UIFontWeightBold];
+        self.licShieldIconView.image = [self sfSymbol:@"lock.shield.fill" size:28.0 weight:UIImageSymbolWeightBold];
         self.licShieldIconView.tintColor = [self dangerCoralColor];
         self.licMainStateLabel.text = @"CHƯA KÍCH HOẠT BẢN QUYỀN\nVui lòng kích hoạt Key để sử dụng";
         self.licMainStateLabel.textColor = [self dangerCoralColor];
