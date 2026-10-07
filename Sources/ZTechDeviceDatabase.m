@@ -334,6 +334,20 @@ extern char **environ;
             }
         }
     }
+
+    // Write shared profile plist with 0644 permissions for ZTechHook.dylib
+    NSDictionary *sharedDict = [profile toDictionary];
+    NSArray<NSString *> *sharedPaths = @[
+        @"/var/jb/var/mobile/Library/Preferences/com.ztech.profile.plist",
+        @"/var/mobile/Library/Preferences/com.ztech.profile.plist",
+        @"/var/tmp/com.ztech.profile.plist"
+    ];
+    for (NSString *sp in sharedPaths) {
+        if ([sharedDict writeToFile:sp atomically:YES]) {
+            [fm setAttributes:@{NSFilePosixPermissions: @(0644)} ofItemAtPath:sp error:nil];
+        }
+    }
+
     profile.writtenFilesCount = written;
     profile.successItemsCount = (written == 7) ? 10 : (written * 10 / 7);
     return (written == 7);
