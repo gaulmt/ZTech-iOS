@@ -28,7 +28,7 @@
 // Buttons
 @property (nonatomic, strong) UIButton *changeDeviceButton;
 @property (nonatomic, strong) UIButton *syncIPButton;
-@property (nonatomic, strong) UIButton *copyReportButton;
+@property (nonatomic, strong) UIButton *btnCopyReport;
 
 // Check Card UI
 @property (nonatomic, strong) UILabel *checkDetailLabel;
@@ -363,15 +363,15 @@
     checkTitle.font = [UIFont systemFontOfSize:12.5 weight:UIFontWeightBold];
     checkTitle.textColor = [self goldAccentColor];
 
-    self.copyReportButton = [UIButton buttonWithType:UIButtonTypeSystem];
-    self.copyReportButton.translatesAutoresizingMaskIntoConstraints = NO;
-    self.copyReportButton.backgroundColor = [self creamButtonColor];
-    self.copyReportButton.layer.cornerRadius = 12.0;
-    [self.copyReportButton setTitle:@"Copy report · Sao chép" forState:UIControlStateNormal];
-    [self.copyReportButton setTitleColor:[self darkButtonTextColor] forState:UIControlStateNormal];
-    self.copyReportButton.titleLabel.font = [UIFont systemFontOfSize:14.0 weight:UIFontWeightSemibold];
-    self.copyReportButton.contentEdgeInsets = UIEdgeInsetsMake(8.0, 14.0, 8.0, 14.0);
-    [self.copyReportButton addTarget:self action:@selector(onTapCopyReport) forControlEvents:UIControlEventTouchUpInside];
+    self.btnCopyReport = [UIButton buttonWithType:UIButtonTypeSystem];
+    self.btnCopyReport.translatesAutoresizingMaskIntoConstraints = NO;
+    self.btnCopyReport.backgroundColor = [self creamButtonColor];
+    self.btnCopyReport.layer.cornerRadius = 12.0;
+    [self.btnCopyReport setTitle:@"Copy report · Sao chép" forState:UIControlStateNormal];
+    [self.btnCopyReport setTitleColor:[self darkButtonTextColor] forState:UIControlStateNormal];
+    self.btnCopyReport.titleLabel.font = [UIFont systemFontOfSize:14.0 weight:UIFontWeightSemibold];
+    self.btnCopyReport.contentEdgeInsets = UIEdgeInsetsMake(8.0, 14.0, 8.0, 14.0);
+    [self.btnCopyReport addTarget:self action:@selector(onTapCopyReport) forControlEvents:UIControlEventTouchUpInside];
 
     self.checkDetailLabel = [[UILabel alloc] init];
     self.checkDetailLabel.translatesAutoresizingMaskIntoConstraints = NO;
@@ -380,17 +380,17 @@
     self.checkDetailLabel.numberOfLines = 0;
 
     [card addSubview:checkTitle];
-    [card addSubview:self.copyReportButton];
+    [card addSubview:self.btnCopyReport];
     [card addSubview:self.checkDetailLabel];
 
     [NSLayoutConstraint activateConstraints:@[
-        [self.copyReportButton.topAnchor constraintEqualToAnchor:card.topAnchor constant:12.0],
-        [self.copyReportButton.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-14.0],
+        [self.btnCopyReport.topAnchor constraintEqualToAnchor:card.topAnchor constant:12.0],
+        [self.btnCopyReport.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-14.0],
 
-        [checkTitle.centerYAnchor constraintEqualToAnchor:self.copyReportButton.centerYAnchor],
+        [checkTitle.centerYAnchor constraintEqualToAnchor:self.btnCopyReport.centerYAnchor],
         [checkTitle.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:16.0],
 
-        [self.checkDetailLabel.topAnchor constraintEqualToAnchor:self.copyReportButton.bottomAnchor constant:10.0],
+        [self.checkDetailLabel.topAnchor constraintEqualToAnchor:self.btnCopyReport.bottomAnchor constant:10.0],
         [self.checkDetailLabel.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:16.0],
         [self.checkDetailLabel.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-16.0],
         [self.checkDetailLabel.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-16.0]
@@ -493,9 +493,9 @@
                                                          sameScreen:self.sameScreenSwitch.isOn
                                                           matchChip:self.matchChipSwitch.isOn];
     [UIPasteboard generalPasteboard].string = report;
-    [self.copyReportButton setTitle:@"Đã sao chép ✓" forState:UIControlStateNormal];
+    [self.btnCopyReport setTitle:@"Đã sao chép ✓" forState:UIControlStateNormal];
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        [self.copyReportButton setTitle:@"Copy report · Sao chép" forState:UIControlStateNormal];
+        [self.btnCopyReport setTitle:@"Copy report · Sao chép" forState:UIControlStateNormal];
     });
 }
 
