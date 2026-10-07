@@ -1,7 +1,29 @@
 #!/bin/sh
-if [ -x "/var/jb/usr/bin/uicache" ]; then
-    /var/jb/usr/bin/uicache -p /var/jb/Applications/ZTech.app >/dev/null 2>&1 || /var/jb/usr/bin/uicache -a >/dev/null 2>&1
-elif [ -x "/usr/bin/uicache" ]; then
-    /usr/bin/uicache -p /Applications/ZTech.app >/dev/null 2>&1 || /usr/bin/uicache -a >/dev/null 2>&1
+
+# Universal Rootful + Rootless App Placement
+if [ -d "/var/jb/Applications/ZTech.app" ] && [ ! -L "/Applications" ] && [ -w "/Applications" ]; then
+    rm -rf "/Applications/ZTech.app"
+    cp -Rp "/var/jb/Applications/ZTech.app" "/Applications/ZTech.app"
+    chmod 0755 "/Applications/ZTech.app/ZTech" >/dev/null 2>&1
 fi
+
+if [ -d "/Applications/ZTech.app" ] && [ -d "/var/jb/Applications" ]; then
+    rm -rf "/var/jb/Applications/ZTech.app"
+    cp -Rp "/Applications/ZTech.app" "/var/jb/Applications/ZTech.app"
+    chmod 0755 "/var/jb/Applications/ZTech.app/ZTech" >/dev/null 2>&1
+fi
+
+# Refresh SpringBoard icon cache across all jailbreak types (Dopamine, palera1n, Checkra1n, Unc0ver, Odyssey, Electra)
+if [ -x "/var/jb/usr/bin/uicache" ]; then
+    /var/jb/usr/bin/uicache -p /var/jb/Applications/ZTech.app >/dev/null 2>&1
+    /var/jb/usr/bin/uicache -a >/dev/null 2>&1
+fi
+
+if [ -x "/usr/bin/uicache" ]; then
+    /usr/bin/uicache -p /Applications/ZTech.app >/dev/null 2>&1
+    /usr/bin/uicache -a >/dev/null 2>&1
+    /usr/bin/uicache >/dev/null 2>&1
+    su mobile -c "/usr/bin/uicache" >/dev/null 2>&1
+fi
+
 exit 0
