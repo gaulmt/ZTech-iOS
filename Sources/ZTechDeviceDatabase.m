@@ -28,7 +28,7 @@ extern char **environ;
                              matchChip:(BOOL)matchChip {
     NSString *modeText = lockModel ? @"Khoá Đời Máy" : @"Fake Tất Cả";
     return [NSString stringWithFormat:
-            @"=== ZTech Device Report ===\n"
+            @"=== ZTech Device Report v2.0 ===\n"
             @"ID: %@\n"
             @"Device: %@ (%@) - iOS %@\n"
             @"Chip/RAM: %@ (%ldGB) - Screen: %@\n"
@@ -91,6 +91,9 @@ extern char **environ;
 
 + (NSArray<NSDictionary *> *)allDeviceSpecs {
     return @[
+        @{@"name": @"iPhone 11", @"machine": @"iPhone12,1", @"chip": @"A13 Bionic", @"ram": @4, @"screen": @"414x896", @"ios": @[@"16.5.1", @"16.6.1", @"17.1.2"]},
+        @{@"name": @"iPhone 11 Pro", @"machine": @"iPhone12,3", @"chip": @"A13 Bionic", @"ram": @4, @"screen": @"375x812", @"ios": @[@"16.6", @"16.7.2", @"17.1.2"]},
+        @{@"name": @"iPhone 11 Pro Max", @"machine": @"iPhone12,5", @"chip": @"A13 Bionic", @"ram": @4, @"screen": @"414x896", @"ios": @[@"16.6.1", @"17.1.1", @"17.1.2"]},
         @{@"name": @"iPhone 12", @"machine": @"iPhone13,2", @"chip": @"A14 Bionic", @"ram": @4, @"screen": @"390x844", @"ios": @[@"16.6.1", @"16.7.2", @"17.1.2"]},
         @{@"name": @"iPhone 12 Pro", @"machine": @"iPhone13,3", @"chip": @"A14 Bionic", @"ram": @6, @"screen": @"390x844", @"ios": @[@"16.6.1", @"17.0.3", @"17.1.2"]},
         @{@"name": @"iPhone 12 Pro Max", @"machine": @"iPhone13,4", @"chip": @"A14 Bionic", @"ram": @6, @"screen": @"428x926", @"ios": @[@"16.6.1", @"17.1.1", @"17.1.2"]},
@@ -118,13 +121,6 @@ extern char **environ;
     return machine;
 }
 
-+ (NSString *)realScreenKey {
-    CGSize size = [UIScreen mainScreen].bounds.size;
-    NSInteger w = (NSInteger)MIN(size.width, size.height);
-    NSInteger h = (NSInteger)MAX(size.width, size.height);
-    return [NSString stringWithFormat:@"%ldx%ld", (long)w, (long)h];
-}
-
 + (NSDictionary *)realDeviceSpecFallback {
     NSString *realMachine = [self realHardwareMachine];
     for (NSDictionary *spec in [self allDeviceSpecs]) {
@@ -132,7 +128,7 @@ extern char **environ;
             return spec;
         }
     }
-    return [self allDeviceSpecs][12]; // Default iPhone 15 Pro (iPhone16,1)
+    return [self allDeviceSpecs][15]; // iPhone 15 Pro (iPhone16,1)
 }
 
 + (ZTechDeviceProfile *)loadOrCreateDefaultProfile {
@@ -166,6 +162,9 @@ extern char **environ;
                                              currentCity:(NSString *)currentCity {
     NSArray<NSDictionary *> *allSpecs = [self allDeviceSpecs];
     NSDictionary *realSpec = [self realDeviceSpecFallback];
+    NSDictionary *prevSaved = [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"ZTechCurrentProfile"];
+    NSString *prevMachine = prevSaved[@"machineId"];
+
     NSMutableArray<NSDictionary *> *candidates = [NSMutableArray array];
 
     if (lockModel) {
@@ -176,16 +175,36 @@ extern char **environ;
             if (sameScreen && ![spec[@"screen"] isEqualToString:realSpec[@"screen"]]) {
                 ok = NO;
             }
-            if (matchChip && (![spec[@"chip"] isEqualToString:realSpec[@"chip"]] ||
-                              ![spec[@"ram"] isEqualToNumber:realSpec[@"ram"]])) {
+            if (matchChip && ![spec[@"ram"] isEqualToNumber:realSpec[@"ram"]]) {
                 ok = NO;
             }
             if (ok) {
                 [candidates addObject:spec];
             }
         }
-        if (candidates.count == 0) {
-            [candidates addObject:realSpec];
+        // If strict filters left <= 1 model, expand to same screen or full pool so the model visibly changes
+        if (candidates.count <= 1 && sameScreen) {
+            [candidates removeAllObjects];
+            for (NSDictionary *spec in allSpecs) {
+                if ([spec[@"screen"] isEqualToString:realSpec[@"screen"]]) {
+                    [candidates addObject:spec];
+                }
+            }
+        }
+        if (candidates.count <= 1) {
+            candidates = [allSpecs mutableCopy];
+        }
+        // Avoid repeating the exact same machine consecutively when multiple candidates exist
+        if (candidates.count > 1 && prevMachine.length > 0) {
+            NSMutableArray<NSDictionary *> *nonRepeat = [NSMutableArray array];
+            for (NSDictionary *spec in candidates) {
+                if (![spec[@"machine"] isEqualToString:prevMachine]) {
+                    [nonRepeat addObject:spec];
+                }
+            }
+            if (nonRepeat.count > 0) {
+                candidates = nonRepeat;
+            }
         }
     }
 
@@ -213,11 +232,11 @@ extern char **environ;
     profile.modelName = chosen[@"name"];
     profile.machineId = chosen[@"machine"];
     profile.iosVersion = chosenIOS;
-    profile.batteryPercent = 25 + arc4random_uniform(71); // 25% -> 95%
+    profile.batteryPercent = 20 + arc4random_uniform(76);
     profile.carrier = carriers[arc4random_uniform((uint32_t)carriers.count)];
     profile.wifiSsid = wifis[arc4random_uniform((uint32_t)wifis.count)];
-    profile.city = (currentCity.length > 0) ? currentCity : cities[arc4random_uniform((uint32_t)cities.count)];
-    profile.contactsCount = 18 + arc4random_uniform(85); // 18 -> 102 danh ba
+    profile.city = cities[arc4random_uniform((uint32_t)cities.count)];
+    profile.contactsCount = 15 + arc4random_uniform(95);
     profile.chipName = chosen[@"chip"];
     profile.ramGB = [chosen[@"ram"] integerValue];
     profile.screenKey = chosen[@"screen"];

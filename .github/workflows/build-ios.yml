@@ -1,9 +1,14 @@
-name: Build ZTech iOS (Jailbreak .deb & TrollStore .tipa)
+name: Build ZTech iOS & Deploy Sileo Repo
 
 on:
   push:
     branches: [ "main", "master" ]
   workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
 
 jobs:
   build-ios:
@@ -13,9 +18,9 @@ jobs:
       - name: Checkout Source Code
         uses: actions/checkout@v4
 
-      - name: Install Theos & Dependencies (ldid, dpkg)
+      - name: Install Theos & Dependencies (ldid, dpkg, xz)
         run: |
-          brew install ldid dpkg
+          brew install ldid dpkg xz
           export THEOS=$HOME/theos
           git clone --recursive https://github.com/theos/theos.git "$THEOS"
           echo "THEOS=$THEOS" >> $GITHUB_ENV
@@ -38,15 +43,106 @@ jobs:
           make clean package FINALPACKAGE=1
           cp packages/*.deb "$GITHUB_WORKSPACE/build_out/ZTech_Rootful_arm.deb"
 
-          # Find built ZTech.app bundle and package as .tipa (TrollStore) and .ipa
           mkdir -p "$GITHUB_WORKSPACE/build_out/Payload"
           APP_PATH=$(find .theos -name "ZTech.app" -type d | head -n 1)
-          echo "Found app bundle at: $APP_PATH"
           cp -r "$APP_PATH" "$GITHUB_WORKSPACE/build_out/Payload/ZTech.app"
           cd "$GITHUB_WORKSPACE/build_out"
           zip -r9 ZTech_TrollStore.tipa Payload
           cp ZTech_TrollStore.tipa ZTech_App.ipa
           rm -rf Payload
+
+      - name: Generate Sileo APT Repository (Packages & Release)
+        run: |
+          REPO_DIR="$GITHUB_WORKSPACE/sileo_repo"
+          mkdir -p "$REPO_DIR/debs"
+          cp "$GITHUB_WORKSPACE/build_out/ZTech_Rootless_arm64.deb" "$REPO_DIR/debs/"
+          cp "$GITHUB_WORKSPACE/build_out/ZTech_Rootful_arm.deb" "$REPO_DIR/debs/"
+          cp "$GITHUB_WORKSPACE/build_out/ZTech_TrollStore.tipa" "$REPO_DIR/debs/"
+
+          cd "$REPO_DIR"
+          dpkg-scanpackages -m ./debs > Packages
+          gzip -c9 Packages > Packages.gz
+          bzip2 -c9 Packages > Packages.bz2
+          xz -c9 Packages > Packages.xz
+
+          cat << 'EOF' > Release
+          Origin: ZTech Official Sileo Repo
+          Label: ZTech Repo
+          Suite: stable
+          Version: 2.0
+          Codename: ios
+          Architectures: iphoneos-arm iphoneos-arm64 iphoneos-arm64e
+          Components: main
+          Description: Nguon cai dat ZTech truc tiep tren Sileo & Zebra (Ho tro Rootless & Rootful)
+          EOF
+
+          cat << 'EOF' > depiction.json
+          {
+            "minVersion": "0.1",
+            "class": "DepictionTabView",
+            "tabs": [
+              {
+                "tabname": "Chi tiết",
+                "class": "DepictionStackView",
+                "views": [
+                  {
+                    "class": "DepictionSubheaderView",
+                    "useBoldText": true,
+                    "title": "ZTech v2.0 - Quản lý & Đổi cấu hình thiết bị"
+                  },
+                  {
+                    "class": "DepictionMarkdownView",
+                    "markdown": "Công cụ **ZTech** hỗ trợ cả **Rootless (Dopamine/palera1n)** và **Rootful** trực tiếp qua Sileo.\n\n- Tự động tạo bộ thông số thiết bị (`iPhone12,1` -> `iPhone16,2`)\n- Hỗ trợ đồng bộ vị trí Tỉnh/Thành & Nhà mạng theo IP\n- Ghi 7 file cấu hình `.plist` & hỗ trợ Respring"
+                  }
+                ]
+              }
+            ]
+          }
+          EOF
+
+          cat << 'EOF' > index.html
+          <!DOCTYPE html>
+          <html lang="vi">
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+            <title>ZTech Official Sileo Repo</title>
+            <style>
+              body { background:#0b0d0b; color:#fff; font-family:-apple-system,BlinkMacSystemFont,sans-serif; padding:24px; max-width:480px; margin:0 auto; text-align:center; }
+              .card { background:#141714; border:1px solid #333629; border-radius:20px; padding:24px; margin-top:20px; }
+              h1 { font-size:32px; margin:0 0 6px; color:#fff; }
+              .sub { color:#babfb8; font-size:15px; margin-bottom:20px; }
+              .btn { display:block; text-decoration:none; padding:16px; border-radius:14px; font-weight:700; font-size:17px; margin:12px 0; }
+              .btn-sileo { background:#eae0b7; color:#232119; }
+              .btn-zebra { background:#1e221e; color:#fff; border:1px solid #3c4032; }
+              .url-box { background:#0b0d0b; border:1px dashed #555; padding:12px; border-radius:10px; font-family:monospace; color:#dec882; font-size:14px; word-break:break-all; margin-top:12px; }
+            </style>
+          </head>
+          <body>
+            <div class="card">
+              <h1>ZTech Repo</h1>
+              <div class="sub">Nguồn cài đặt trực tiếp vào Sileo & Zebra</div>
+              <a class="btn btn-sileo" href="sileo://source/https://gaulmt.github.io/ZTech-iOS/">➕ Thêm nguồn vào Sileo ngay</a>
+              <a class="btn btn-zebra" href="zbra://sources/add/https://gaulmt.github.io/ZTech-iOS/">➕ Thêm nguồn vào Zebra</a>
+              <a class="btn btn-zebra" href="apple-magnifier://install?url=https://gaulmt.github.io/ZTech-iOS/debs/ZTech_TrollStore.tipa">⚡ Cài trực tiếp qua TrollStore</a>
+              <p style="color:#9ba19b;font-size:13px;margin-top:20px;">Hoặc copy link nguồn dưới đây dán vào mục Nguồn (Sources) trong Sileo:</p>
+              <div class="url-box">https://gaulmt.github.io/ZTech-iOS/</div>
+            </div>
+          </body>
+          </html>
+          EOF
+
+      - name: Deploy Sileo Repo to gh-pages branch
+        run: |
+          cd "$GITHUB_WORKSPACE/sileo_repo"
+          touch .nojekyll
+          git init
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b gh-pages
+          git add .
+          git commit -m "Deploy Sileo APT Repository v2.0.0"
+          git push --force "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" gh-pages
 
       - name: Upload Built Packages (.deb, .tipa, .ipa)
         uses: actions/upload-artifact@v4
