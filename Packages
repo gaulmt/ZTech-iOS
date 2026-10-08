@@ -1,0 +1,36 @@
+Package: com.ztech.devicechanger
+Version: 5.3.0
+Architecture: iphoneos-arm
+Maintainer: gaulmt -Tech
+Installed-Size: 520
+Depends: firmware (>= 12.0)
+Filename: debs/gaulmt_Tech_Rootful_arm.deb
+Size: 117398
+MD5sum: 72ddb2984c3da0ee6f42bff08d632392
+SHA1: 4ee723befc9a1bff3fc10984fc4567bf1cd23a37
+SHA256: 44e5bb52777742167fe27393e75b9079e2371e23cff7e00aee3c40e5d57d0434
+Section: Utilities
+Description: gaulmt -Tech v5.3.0 - Nang Cap Nut Doi IP 22s Che Do May Bay Tu Dong + Bo Dem Thoi Gian Truc Quan + Tu Dong Nhan IP 4G/LTE Moi
+Author: gaulmt -Tech
+Icon: https://gaulmt.github.io/CydiaIcon@3x.png
+Name: gaulmt -Tech
+Sileodepiction: https://gaulmt.github.io/depiction.json
+
+Package: com.ztech.devicechanger.rootless
+Version: 5.3.0
+Architecture: iphoneos-arm64
+Maintainer: gaulmt -Tech
+Installed-Size: 520
+Depends: firmware (>= 12.0)
+Filename: debs/gaulmt_Tech_Rootless_arm64.deb
+Size: 117486
+MD5sum: 47da0becdbabdf62f2076b9efa4f5254
+SHA1: cc766e453924707b64f8046b8f121f1fc6900390
+SHA256: 20683e98a69d7883b522ddb8f54b80825da46ba8b8c6070ccd60c5b10f47a25e
+Section: Utilities
+Description: gaulmt -Tech v5.3.0 - Nang Cap Nut Doi IP 22s Che Do May Bay Tu Dong + Bo Dem Thoi Gian Truc Quan + Tu Dong Nhan IP 4G/LTE Moi
+Author: gaulmt -Tech
+Icon: https://gaulmt.github.io/CydiaIcon@3x.png
+Name: gaulmt -Tech (Rootless)
+Sileodepiction: https://gaulmt.github.io/depiction.json
+

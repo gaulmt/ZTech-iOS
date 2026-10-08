@@ -1,0 +1,8 @@
+Origin: gaulmt -Tech Official Repo
+Label: gaulmt -Tech
+Suite: stable
+Version: 5.3.0
+Codename: ios
+Architectures: iphoneos-arm iphoneos-arm64 iphoneos-arm64e
+Components: main
+Description: Nguon cai dat gaulmt -Tech v5.3.0 truc tiep tren Sileo & Zebra (Nut Doi IP 22s May Bay + Kho Acc Zalo & Proxy)

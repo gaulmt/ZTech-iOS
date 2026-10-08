@@ -1,0 +1,21 @@
+{
+  "minVersion": "0.1",
+  "class": "DepictionTabView",
+  "tabs": [
+    {
+      "tabname": "Chi tiết",
+      "class": "DepictionStackView",
+      "views": [
+        {
+          "class": "DepictionSubheaderView",
+          "useBoldText": true,
+          "title": "gaulmt -Tech v5.3.0 - Đổi IP 22s Chế Độ Máy Bay + Kho Acc Zalo"
+        },
+        {
+          "class": "DepictionMarkdownView",
+          "markdown": "Công cụ **gaulmt -Tech v5.3.0** hỗ trợ cả **Rootless (Dopamine/palera1n)** và **Rootful (Checkra1n/Unc0ver/Odyssey)** trực tiếp qua Sileo.\n\n- **Đổi IP Tự Động (Chế độ máy bay 22s)**: Chu trình ngắt sóng 22s chuẩn trạm phát viễn thông (Viettel, Vina, Mobi) để cấp IP 4G/LTE mới tinh, đếm ngược trực quan kèm phím tắt cài đặt & bỏ qua chờ.\n- **Kho Lưu Trữ Acc Zalo & Proxy**: Tự động xoá cookie Safari & tạo phiên mới khi lưu kho, bơm proxy bảo mật tuyệt đối.\n- Bổ sung trọn bộ **iPhone 16 Series** & tương thích mượt mà mọi model iPhone từ SE/6s đến 16 Pro Max."
+        }
+      ]
+    }
+  ]
+}
