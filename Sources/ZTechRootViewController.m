@@ -583,14 +583,20 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
     UILabel *appTitle = [[UILabel alloc] init];
     appTitle.translatesAutoresizingMaskIntoConstraints = NO;
     appTitle.text = @"gaulmt -Tech";
-    appTitle.font = [UIFont systemFontOfSize:19.0 weight:UIFontWeightHeavy];
+    appTitle.font = [UIFont systemFontOfSize:17.5 weight:UIFontWeightHeavy];
     appTitle.textColor = [self primaryTextColor];
+    appTitle.adjustsFontSizeToFitWidth = YES;
+    appTitle.minimumScaleFactor = 0.8;
+    [appTitle setContentCompressionResistancePriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisHorizontal];
 
     UILabel *appSub = [[UILabel alloc] init];
     appSub.translatesAutoresizingMaskIntoConstraints = NO;
-    appSub.text = @"Enterprise Identity & Vault · v5.1";
-    appSub.font = [UIFont systemFontOfSize:11.0 weight:UIFontWeightMedium];
+    appSub.text = @"Identity & Vault · v5.1";
+    appSub.font = [UIFont systemFontOfSize:10.5 weight:UIFontWeightMedium];
     appSub.textColor = [self mutedTextColor];
+    appSub.adjustsFontSizeToFitWidth = YES;
+    appSub.minimumScaleFactor = 0.8;
+    [appSub setContentCompressionResistancePriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisHorizontal];
 
     self.themeToggleButton = [UIButton buttonWithType:UIButtonTypeSystem];
     self.themeToggleButton.translatesAutoresizingMaskIntoConstraints = NO;
@@ -601,7 +607,9 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
     [self.themeToggleButton setTitle:(self.isLightMode ? @"☀️ Sáng" : @"🌙 Tối") forState:UIControlStateNormal];
     [self.themeToggleButton setTitleColor:[self goldAccentColor] forState:UIControlStateNormal];
     self.themeToggleButton.titleLabel.font = [UIFont systemFontOfSize:11.0 weight:UIFontWeightBold];
-    self.themeToggleButton.contentEdgeInsets = UIEdgeInsetsMake(0, 9, 0, 9);
+    self.themeToggleButton.contentEdgeInsets = UIEdgeInsetsMake(0, 8, 0, 8);
+    [self.themeToggleButton setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+    [self.themeToggleButton setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
     [self attachSpringTouchFeedbackToButton:self.themeToggleButton];
     [self.themeToggleButton addTarget:self action:@selector(onTapToggleTheme) forControlEvents:UIControlEventTouchUpInside];
 
@@ -621,6 +629,8 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
     self.headerLicenseText.text = @"ACTIVE";
     self.headerLicenseText.font = [UIFont systemFontOfSize:10.0 weight:UIFontWeightHeavy];
     self.headerLicenseText.textColor = [self emeraldColor];
+    [self.headerLicenseText setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+    [self.headerLicenseText setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
 
     [self.headerLicenseBadge addSubview:self.headerLicenseIcon];
     [self.headerLicenseBadge addSubview:self.headerLicenseText];
@@ -643,18 +653,20 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
         [bottomLine.bottomAnchor constraintEqualToAnchor:self.topHeaderBar.bottomAnchor],
         [bottomLine.heightAnchor constraintEqualToConstant:1.0],
 
-        [crestLogoView.leadingAnchor constraintEqualToAnchor:self.topHeaderBar.leadingAnchor constant:14.0],
+        [crestLogoView.leadingAnchor constraintEqualToAnchor:self.topHeaderBar.leadingAnchor constant:12.0],
         [crestLogoView.centerYAnchor constraintEqualToAnchor:self.topHeaderBar.centerYAnchor],
-        [crestLogoView.widthAnchor constraintEqualToConstant:38.0],
-        [crestLogoView.heightAnchor constraintEqualToConstant:38.0],
+        [crestLogoView.widthAnchor constraintEqualToConstant:36.0],
+        [crestLogoView.heightAnchor constraintEqualToConstant:36.0],
 
         [appTitle.topAnchor constraintEqualToAnchor:crestLogoView.topAnchor constant:0.0],
-        [appTitle.leadingAnchor constraintEqualToAnchor:crestLogoView.trailingAnchor constant:9.0],
+        [appTitle.leadingAnchor constraintEqualToAnchor:crestLogoView.trailingAnchor constant:8.0],
+        [appTitle.trailingAnchor constraintLessThanOrEqualToAnchor:self.themeToggleButton.leadingAnchor constant:-6.0],
 
         [appSub.topAnchor constraintEqualToAnchor:appTitle.bottomAnchor constant:1.0],
-        [appSub.leadingAnchor constraintEqualToAnchor:crestLogoView.trailingAnchor constant:9.0],
+        [appSub.leadingAnchor constraintEqualToAnchor:crestLogoView.trailingAnchor constant:8.0],
+        [appSub.trailingAnchor constraintLessThanOrEqualToAnchor:self.themeToggleButton.leadingAnchor constant:-6.0],
 
-        [self.headerLicenseBadge.trailingAnchor constraintEqualToAnchor:self.topHeaderBar.trailingAnchor constant:-14.0],
+        [self.headerLicenseBadge.trailingAnchor constraintEqualToAnchor:self.topHeaderBar.trailingAnchor constant:-12.0],
         [self.headerLicenseBadge.centerYAnchor constraintEqualToAnchor:self.topHeaderBar.centerYAnchor],
         [self.headerLicenseBadge.heightAnchor constraintEqualToConstant:26.0],
 
@@ -2005,7 +2017,9 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
     self.vaultNameInputField.delegate = self;
     self.vaultNameInputField.attributedPlaceholder = [[NSAttributedString alloc] initWithString:@"Tên gợi nhớ Acc Zalo..."
                                                                                      attributes:@{NSForegroundColorAttributeName: [self mutedTextColor]}];
-    [self.vaultNameInputField.heightAnchor constraintEqualToConstant:46.0].active = YES;
+    NSLayoutConstraint *vaultNameH = [self.vaultNameInputField.heightAnchor constraintEqualToConstant:46.0];
+    vaultNameH.priority = UILayoutPriorityDefaultHigh;
+    vaultNameH.active = YES;
 
     UIView *proxyFieldWrap = [[UIView alloc] init];
     proxyFieldWrap.translatesAutoresizingMaskIntoConstraints = NO;
@@ -2332,8 +2346,8 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
     self.lockOverlayView = [[UIView alloc] init];
     self.lockOverlayView.translatesAutoresizingMaskIntoConstraints = NO;
     self.lockOverlayView.backgroundColor = self.isLightMode
-        ? [UIColor colorWithRed:0.93 green:0.96 blue:1.00 alpha:0.98]
-        : [UIColor colorWithRed:0.03 green:0.04 blue:0.03 alpha:0.98];
+        ? [UIColor colorWithRed:0.05 green:0.12 blue:0.26 alpha:0.55]
+        : [UIColor colorWithRed:0.02 green:0.03 blue:0.02 alpha:0.94];
     [self.view addSubview:self.lockOverlayView];
 
     UIControl *bgDismiss = [[UIControl alloc] init];
@@ -2347,14 +2361,16 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
     [self.lockOverlayView addSubview:box];
 
     UILabel *lockTitle = [[UILabel alloc] init];
+    lockTitle.translatesAutoresizingMaskIntoConstraints = NO;
     lockTitle.text = @"NHẬP KEY BẢN QUYỀN";
     lockTitle.font = [UIFont systemFontOfSize:17.5 weight:UIFontWeightHeavy];
     lockTitle.textColor = [self goldAccentColor];
     lockTitle.textAlignment = NSTextAlignmentCenter;
+    [box addSubview:lockTitle];
 
     UIView *keyFieldWrapper = [[UIView alloc] init];
     keyFieldWrapper.translatesAutoresizingMaskIntoConstraints = NO;
-    [keyFieldWrapper.heightAnchor constraintEqualToConstant:52.0].active = YES;
+    [box addSubview:keyFieldWrapper];
 
     self.keyInputField = [[ZTechSafeTextField alloc] init];
     self.keyInputField.translatesAutoresizingMaskIntoConstraints = NO;
@@ -2392,24 +2408,36 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
     [btnPasteInline addTarget:self action:@selector(onTapPasteKeyInline) forControlEvents:UIControlEventTouchUpInside];
     [keyFieldWrapper addSubview:btnPasteInline];
 
-    [NSLayoutConstraint activateConstraints:@[
-        [self.keyInputField.topAnchor constraintEqualToAnchor:keyFieldWrapper.topAnchor],
-        [self.keyInputField.leadingAnchor constraintEqualToAnchor:keyFieldWrapper.leadingAnchor],
-        [self.keyInputField.trailingAnchor constraintEqualToAnchor:keyFieldWrapper.trailingAnchor],
-        [self.keyInputField.bottomAnchor constraintEqualToAnchor:keyFieldWrapper.bottomAnchor],
-
-        [btnPasteInline.centerYAnchor constraintEqualToAnchor:keyFieldWrapper.centerYAnchor],
-        [btnPasteInline.trailingAnchor constraintEqualToAnchor:keyFieldWrapper.trailingAnchor constant:-7.0],
-        [btnPasteInline.widthAnchor constraintEqualToConstant:68.0],
-        [btnPasteInline.heightAnchor constraintEqualToConstant:36.0]
-    ]];
-
     self.lockStatusMsgLabel = [[UILabel alloc] init];
+    self.lockStatusMsgLabel.translatesAutoresizingMaskIntoConstraints = NO;
     self.lockStatusMsgLabel.font = [UIFont systemFontOfSize:13.0 weight:UIFontWeightSemibold];
     self.lockStatusMsgLabel.textColor = [self dangerCoralColor];
     self.lockStatusMsgLabel.textAlignment = NSTextAlignmentCenter;
     self.lockStatusMsgLabel.numberOfLines = 0;
-    self.lockStatusMsgLabel.hidden = YES;
+    self.lockStatusMsgLabel.text = nil;
+    [box addSubview:self.lockStatusMsgLabel];
+
+    UIStackView *actionRow = [[UIStackView alloc] init];
+    actionRow.translatesAutoresizingMaskIntoConstraints = NO;
+    actionRow.axis = UILayoutConstraintAxisHorizontal;
+    actionRow.spacing = 10.0;
+    actionRow.distribution = UIStackViewDistributionFillProportionally;
+    [box addSubview:actionRow];
+
+    self.btnCloseKeyOverlay = [UIButton buttonWithType:UIButtonTypeSystem];
+    self.btnCloseKeyOverlay.backgroundColor = [self surfaceInsetColor];
+    self.btnCloseKeyOverlay.layer.cornerRadius = 13.0;
+    self.btnCloseKeyOverlay.layer.borderWidth = 1.0;
+    self.btnCloseKeyOverlay.layer.borderColor = [self borderSubtleColor].CGColor;
+    [self.btnCloseKeyOverlay setTitle:@"Đóng" forState:UIControlStateNormal];
+    [self.btnCloseKeyOverlay setTitleColor:[self primaryTextColor] forState:UIControlStateNormal];
+    self.btnCloseKeyOverlay.titleLabel.font = [UIFont systemFontOfSize:14.0 weight:UIFontWeightBold];
+    NSLayoutConstraint *closeWidth = [self.btnCloseKeyOverlay.widthAnchor constraintEqualToConstant:94.0];
+    closeWidth.priority = UILayoutPriorityDefaultHigh;
+    closeWidth.active = YES;
+    self.btnCloseKeyOverlay.hidden = YES;
+    [self attachSpringTouchFeedbackToButton:self.btnCloseKeyOverlay];
+    [self.btnCloseKeyOverlay addTarget:self action:@selector(onTapCloseKeyOverlay) forControlEvents:UIControlEventTouchUpInside];
 
     self.btnActivateKey = [UIButton buttonWithType:UIButtonTypeSystem];
     self.btnActivateKey.backgroundColor = [self creamPrimaryColor];
@@ -2419,33 +2447,10 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
              iconType:ZTechIconShieldCheck
             tintColor:[self darkInkColor]
                  font:[UIFont systemFontOfSize:15.5 weight:UIFontWeightHeavy]];
-    [self.btnActivateKey.heightAnchor constraintEqualToConstant:50.0].active = YES;
     [self.btnActivateKey addTarget:self action:@selector(onTapActivateKey) forControlEvents:UIControlEventTouchUpInside];
 
-    self.btnCloseKeyOverlay = [UIButton buttonWithType:UIButtonTypeSystem];
-    self.btnCloseKeyOverlay.backgroundColor = [self surfaceInsetColor];
-    self.btnCloseKeyOverlay.layer.cornerRadius = 11.0;
-    self.btnCloseKeyOverlay.layer.borderWidth = 1.0;
-    self.btnCloseKeyOverlay.layer.borderColor = [self borderSubtleColor].CGColor;
-    [self.btnCloseKeyOverlay setTitle:@"Đóng" forState:UIControlStateNormal];
-    [self.btnCloseKeyOverlay setTitleColor:[self primaryTextColor] forState:UIControlStateNormal];
-    self.btnCloseKeyOverlay.titleLabel.font = [UIFont systemFontOfSize:13.5 weight:UIFontWeightBold];
-    [self.btnCloseKeyOverlay.heightAnchor constraintEqualToConstant:40.0].active = YES;
-    self.btnCloseKeyOverlay.hidden = YES;
-    [self attachSpringTouchFeedbackToButton:self.btnCloseKeyOverlay];
-    [self.btnCloseKeyOverlay addTarget:self action:@selector(onTapCloseKeyOverlay) forControlEvents:UIControlEventTouchUpInside];
-
-    UIStackView *boxStack = [[UIStackView alloc] initWithArrangedSubviews:@[
-        lockTitle,
-        keyFieldWrapper,
-        self.lockStatusMsgLabel,
-        self.btnActivateKey,
-        self.btnCloseKeyOverlay
-    ]];
-    boxStack.translatesAutoresizingMaskIntoConstraints = NO;
-    boxStack.axis = UILayoutConstraintAxisVertical;
-    boxStack.spacing = 14.0;
-    [box addSubview:boxStack];
+    [actionRow addArrangedSubview:self.btnCloseKeyOverlay];
+    [actionRow addArrangedSubview:self.btnActivateKey];
 
     [NSLayoutConstraint activateConstraints:@[
         [self.lockOverlayView.topAnchor constraintEqualToAnchor:self.view.topAnchor],
@@ -2458,14 +2463,38 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
         [bgDismiss.trailingAnchor constraintEqualToAnchor:self.lockOverlayView.trailingAnchor],
         [bgDismiss.bottomAnchor constraintEqualToAnchor:self.lockOverlayView.bottomAnchor],
 
-        [box.centerYAnchor constraintEqualToAnchor:self.lockOverlayView.centerYAnchor constant:-36.0],
+        [box.centerYAnchor constraintEqualToAnchor:self.lockOverlayView.centerYAnchor constant:-32.0],
         [box.leadingAnchor constraintEqualToAnchor:self.lockOverlayView.leadingAnchor constant:20.0],
         [box.trailingAnchor constraintEqualToAnchor:self.lockOverlayView.trailingAnchor constant:-20.0],
 
-        [boxStack.topAnchor constraintEqualToAnchor:box.topAnchor constant:22.0],
-        [boxStack.leadingAnchor constraintEqualToAnchor:box.leadingAnchor constant:18.0],
-        [boxStack.trailingAnchor constraintEqualToAnchor:box.trailingAnchor constant:-18.0],
-        [boxStack.bottomAnchor constraintEqualToAnchor:box.bottomAnchor constant:-22.0]
+        [lockTitle.topAnchor constraintEqualToAnchor:box.topAnchor constant:22.0],
+        [lockTitle.leadingAnchor constraintEqualToAnchor:box.leadingAnchor constant:18.0],
+        [lockTitle.trailingAnchor constraintEqualToAnchor:box.trailingAnchor constant:-18.0],
+
+        [keyFieldWrapper.topAnchor constraintEqualToAnchor:lockTitle.bottomAnchor constant:16.0],
+        [keyFieldWrapper.leadingAnchor constraintEqualToAnchor:box.leadingAnchor constant:18.0],
+        [keyFieldWrapper.trailingAnchor constraintEqualToAnchor:box.trailingAnchor constant:-18.0],
+        [keyFieldWrapper.heightAnchor constraintEqualToConstant:52.0],
+
+        [self.keyInputField.topAnchor constraintEqualToAnchor:keyFieldWrapper.topAnchor],
+        [self.keyInputField.leadingAnchor constraintEqualToAnchor:keyFieldWrapper.leadingAnchor],
+        [self.keyInputField.trailingAnchor constraintEqualToAnchor:keyFieldWrapper.trailingAnchor],
+        [self.keyInputField.bottomAnchor constraintEqualToAnchor:keyFieldWrapper.bottomAnchor],
+
+        [btnPasteInline.centerYAnchor constraintEqualToAnchor:keyFieldWrapper.centerYAnchor],
+        [btnPasteInline.trailingAnchor constraintEqualToAnchor:keyFieldWrapper.trailingAnchor constant:-7.0],
+        [btnPasteInline.widthAnchor constraintEqualToConstant:68.0],
+        [btnPasteInline.heightAnchor constraintEqualToConstant:36.0],
+
+        [self.lockStatusMsgLabel.topAnchor constraintEqualToAnchor:keyFieldWrapper.bottomAnchor constant:8.0],
+        [self.lockStatusMsgLabel.leadingAnchor constraintEqualToAnchor:box.leadingAnchor constant:18.0],
+        [self.lockStatusMsgLabel.trailingAnchor constraintEqualToAnchor:box.trailingAnchor constant:-18.0],
+
+        [actionRow.topAnchor constraintEqualToAnchor:self.lockStatusMsgLabel.bottomAnchor constant:8.0],
+        [actionRow.leadingAnchor constraintEqualToAnchor:box.leadingAnchor constant:18.0],
+        [actionRow.trailingAnchor constraintEqualToAnchor:box.trailingAnchor constant:-18.0],
+        [actionRow.heightAnchor constraintEqualToConstant:50.0],
+        [actionRow.bottomAnchor constraintEqualToAnchor:box.bottomAnchor constant:-22.0]
     ]];
 }
 
@@ -2487,11 +2516,10 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
     NSString *clip = ZTechReadClipboardSafely();
     if (clip.length > 0) {
         self.keyInputField.text = [clip uppercaseString];
-        self.lockStatusMsgLabel.hidden = YES;
+        self.lockStatusMsgLabel.text = nil;
     } else {
         self.lockStatusMsgLabel.text = @"Bộ nhớ tạm đang trống, hãy sao chép Key trước!";
         self.lockStatusMsgLabel.textColor = [self dangerCoralColor];
-        self.lockStatusMsgLabel.hidden = NO;
     }
 }
 
@@ -2533,11 +2561,13 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
 - (void)onTapShowKeyModal {
     self.lockOverlayView.hidden = NO;
     self.btnCloseKeyOverlay.hidden = ![ZTechLicenseManager isLicenseCurrentlyValid];
-    self.lockStatusMsgLabel.hidden = YES;
+    self.lockStatusMsgLabel.text = nil;
     NSString *savedKey = [ZTechLicenseManager savedLicenseKey];
     if (savedKey.length > 0) {
         self.keyInputField.text = savedKey;
     }
+    [self.lockOverlayView setNeedsLayout];
+    [self.lockOverlayView layoutIfNeeded];
 }
 
 - (void)onTapCloseKeyOverlay {
@@ -2564,7 +2594,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
              iconType:ZTechIconCloudSync
             tintColor:[self darkInkColor]
                  font:[UIFont systemFontOfSize:15.5 weight:UIFontWeightHeavy]];
-    self.lockStatusMsgLabel.hidden = YES;
+    self.lockStatusMsgLabel.text = nil;
 
     [ZTechLicenseManager verifyAndActivateKey:inputKey completion:^(BOOL isValid, NSString * _Nonnull message, NSString * _Nullable ownerName, NSString * _Nullable expiryText) {
         self.btnActivateKey.enabled = YES;
@@ -2575,13 +2605,12 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
                      font:[UIFont systemFontOfSize:15.5 weight:UIFontWeightHeavy]];
         if (isValid) {
             self.keyInputField.text = [ZTechLicenseManager savedLicenseKey] ?: inputKey;
-            self.lockStatusMsgLabel.hidden = YES;
+            self.lockStatusMsgLabel.text = nil;
             [self updateLicenseUIState];
             [self showToast:@"Kích hoạt Key thành công!" isError:NO];
         } else {
             self.lockStatusMsgLabel.text = message;
             self.lockStatusMsgLabel.textColor = [self dangerCoralColor];
-            self.lockStatusMsgLabel.hidden = NO;
             [self updateLicenseUIState];
         }
     }];
