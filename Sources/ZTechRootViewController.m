@@ -2835,7 +2835,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
     self.airplaneCountdownLabel = [[UILabel alloc] init];
     self.airplaneCountdownLabel.translatesAutoresizingMaskIntoConstraints = NO;
     self.airplaneCountdownLabel.text = @"22s";
-    self.airplaneCountdownLabel.font = [UIFont monospacedDigitSystemFontOfSize:38.0 weight:UIFontWeightHeavy];
+    self.airplaneCountdownLabel.font = [UIFont systemFontOfSize:38.0 weight:UIFontWeightHeavy];
     self.airplaneCountdownLabel.textColor = [self goldAccentColor];
     self.airplaneCountdownLabel.textAlignment = NSTextAlignmentCenter;
     [countdownBox addSubview:self.airplaneCountdownLabel];
