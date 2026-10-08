@@ -10,12 +10,6 @@
 #import <dlfcn.h>
 #import <notify.h>
 
-@interface NSObject (ZTechPrivateRadios)
-- (void)setAirplaneMode:(BOOL)enabled;
-- (BOOL)airplaneMode;
-- (void)synchronize;
-@end
-
 extern char **environ;
 
 @implementation ZTechVaultAccount
@@ -759,7 +753,6 @@ extern char **environ;
 
 + (void)setSystemAirplaneMode:(BOOL)enabled {
     @try {
-        // 1. Try loading AppSupport or RadiosPreferences
         static void *appSupportHandle = NULL;
         if (!appSupportHandle) {
             appSupportHandle = dlopen("/System/Library/PrivateFrameworks/AppSupport.framework/AppSupport", RTLD_NOW);
@@ -771,15 +764,16 @@ extern char **environ;
         Class rpClass = NSClassFromString(@"RadiosPreferences");
         if (rpClass) {
             id rp = [[rpClass alloc] init];
-            if ([rp respondsToSelector:@selector(setAirplaneMode:)]) {
-                [rp setAirplaneMode:enabled];
+            SEL setAirSel = sel_registerName("setAirplaneMode:");
+            if ([rp respondsToSelector:setAirSel]) {
+                ((void (*)(id, SEL, BOOL))objc_msgSend)(rp, setAirSel, enabled);
             }
-            if ([rp respondsToSelector:@selector(synchronize)]) {
-                [rp synchronize];
+            SEL syncSel = sel_registerName("synchronize");
+            if ([rp respondsToSelector:syncSel]) {
+                ((void (*)(id, SEL))objc_msgSend)(rp, syncSel);
             }
         }
 
-        // 2. Broadcast Darwin Notification to SpringBoard / System daemons
         notify_post(enabled ? "com.ztech.airplaneModeOn" : "com.ztech.airplaneModeOff");
         notify_post("com.apple.radios.airplaneModeChanged");
     } @catch (NSException *e) {}
@@ -790,8 +784,9 @@ extern char **environ;
         Class rpClass = NSClassFromString(@"RadiosPreferences");
         if (rpClass) {
             id rp = [[rpClass alloc] init];
-            if ([rp respondsToSelector:@selector(airplaneMode)]) {
-                return [rp airplaneMode];
+            SEL airSel = sel_registerName("airplaneMode");
+            if ([rp respondsToSelector:airSel]) {
+                return ((BOOL (*)(id, SEL))objc_msgSend)(rp, airSel);
             }
         }
     } @catch (NSException *e) {}

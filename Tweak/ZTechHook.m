@@ -23,15 +23,6 @@
 #import <string.h>
 #import <notify.h>
 
-@interface NSObject (ZTechPrivateRadios)
-- (void)setAirplaneMode:(BOOL)enabled;
-- (BOOL)airplaneMode;
-- (void)synchronize;
-- (void)setInAirplaneMode:(BOOL)enabled;
-- (BOOL)isInAirplaneMode;
-+ (id)sharedInstance;
-@end
-
 #pragma mark - Safe Embedded Fishhook (Supports Chained Fixups __got + Lazy/Non-Lazy Symbol Pointers)
 
 #ifdef __LP64__
@@ -1271,19 +1262,25 @@ static void ZTechHookInit(void) {
                 @try {
                     Class sbClass = objc_getClass("SBAirplaneModeController");
                     if (sbClass) {
-                        id ctrl = [sbClass sharedInstance];
-                        if ([ctrl respondsToSelector:@selector(setInAirplaneMode:)]) {
-                            [ctrl setInAirplaneMode:YES];
+                        SEL sharedSel = sel_registerName("sharedInstance");
+                        SEL setAirSel = sel_registerName("setInAirplaneMode:");
+                        if ([sbClass respondsToSelector:sharedSel]) {
+                            id ctrl = ((id (*)(id, SEL))objc_msgSend)(sbClass, sharedSel);
+                            if (ctrl && [ctrl respondsToSelector:setAirSel]) {
+                                ((void (*)(id, SEL, BOOL))objc_msgSend)(ctrl, setAirSel, YES);
+                            }
                         }
                     }
                     Class rpClass = objc_getClass("RadiosPreferences");
                     if (rpClass) {
                         id rp = [[rpClass alloc] init];
-                        if ([rp respondsToSelector:@selector(setAirplaneMode:)]) {
-                            [rp setAirplaneMode:YES];
+                        SEL setAirSel = sel_registerName("setAirplaneMode:");
+                        if ([rp respondsToSelector:setAirSel]) {
+                            ((void (*)(id, SEL, BOOL))objc_msgSend)(rp, setAirSel, YES);
                         }
-                        if ([rp respondsToSelector:@selector(synchronize)]) {
-                            [rp synchronize];
+                        SEL syncSel = sel_registerName("synchronize");
+                        if ([rp respondsToSelector:syncSel]) {
+                            ((void (*)(id, SEL))objc_msgSend)(rp, syncSel);
                         }
                     }
                 } @catch (NSException *e) {}
@@ -1294,19 +1291,25 @@ static void ZTechHookInit(void) {
                 @try {
                     Class sbClass = objc_getClass("SBAirplaneModeController");
                     if (sbClass) {
-                        id ctrl = [sbClass sharedInstance];
-                        if ([ctrl respondsToSelector:@selector(setInAirplaneMode:)]) {
-                            [ctrl setInAirplaneMode:NO];
+                        SEL sharedSel = sel_registerName("sharedInstance");
+                        SEL setAirSel = sel_registerName("setInAirplaneMode:");
+                        if ([sbClass respondsToSelector:sharedSel]) {
+                            id ctrl = ((id (*)(id, SEL))objc_msgSend)(sbClass, sharedSel);
+                            if (ctrl && [ctrl respondsToSelector:setAirSel]) {
+                                ((void (*)(id, SEL, BOOL))objc_msgSend)(ctrl, setAirSel, NO);
+                            }
                         }
                     }
                     Class rpClass = objc_getClass("RadiosPreferences");
                     if (rpClass) {
                         id rp = [[rpClass alloc] init];
-                        if ([rp respondsToSelector:@selector(setAirplaneMode:)]) {
-                            [rp setAirplaneMode:NO];
+                        SEL setAirSel = sel_registerName("setAirplaneMode:");
+                        if ([rp respondsToSelector:setAirSel]) {
+                            ((void (*)(id, SEL, BOOL))objc_msgSend)(rp, setAirSel, NO);
                         }
-                        if ([rp respondsToSelector:@selector(synchronize)]) {
-                            [rp synchronize];
+                        SEL syncSel = sel_registerName("synchronize");
+                        if ([rp respondsToSelector:syncSel]) {
+                            ((void (*)(id, SEL))objc_msgSend)(rp, syncSel);
                         }
                     }
                 } @catch (NSException *e) {}
