@@ -22,7 +22,7 @@
 #import <mach-o/nlist.h>
 #import <string.h>
 
-#pragma mark - Safe Embedded Fishhook (App Binary Only + Pointer & Symbol Match)
+#pragma mark - Safe Embedded Fishhook (Supports Chained Fixups __got + Lazy/Non-Lazy Symbol Pointers)
 
 #ifdef __LP64__
 typedef struct mach_header_64 mach_header_t;
@@ -42,22 +42,30 @@ typedef struct nlist nlist_t;
 #define SEG_DATA_CONST "__DATA_CONST"
 #endif
 
+#ifndef SEG_AUTH_CONST
+#define SEG_AUTH_CONST "__AUTH_CONST"
+#endif
+
 struct zt_rebinding {
     const char *name;
     void *replacement;
     void *raw_target;
-    void **replaced;
 };
 
 static struct zt_rebinding gRebindings[12];
 static size_t gRebindingsCount = 0;
+
+static inline uintptr_t zt_strip_ptr(const void *p) {
+    return ((uintptr_t)p) & 0x0000000FFFFFFFFFULL;
+}
 
 static void perform_rebinding_with_section(section_t *section,
                                            intptr_t slide,
                                            nlist_t *symtab,
                                            char *strtab,
                                            uint32_t *indirect_symtab,
-                                           uint32_t nindirectsyms) {
+                                           uint32_t nindirectsyms,
+                                           BOOL allowSymbolTableIndexMatch) {
     if (section->size < sizeof(void *)) return;
     void **indirect_symbol_bindings = (void **)((uintptr_t)slide + section->addr);
 
@@ -71,28 +79,31 @@ static void perform_rebinding_with_section(section_t *section,
         }
     }
 
-    uint32_t *indirect_symbol_indices = (indirect_symtab && section->reserved1 < nindirectsyms)
+    uint32_t *indirect_symbol_indices = (allowSymbolTableIndexMatch && indirect_symtab && section->reserved1 < nindirectsyms)
         ? (indirect_symtab + section->reserved1)
         : NULL;
 
     uint count = (uint)(section->size / sizeof(void *));
     for (uint i = 0; i < count; i++) {
         void *cur_ptr = indirect_symbol_bindings[i];
+        uintptr_t cur_stripped = zt_strip_ptr(cur_ptr);
         BOOL rebound = NO;
 
-        // 1. Direct resolved pointer match (works for LC_DYLD_CHAINED_FIXUPS on S_NON_LAZY_SYMBOL_POINTERS)
-        for (size_t j = 0; j < gRebindingsCount; j++) {
-            if (gRebindings[j].raw_target != NULL &&
-                cur_ptr == gRebindings[j].raw_target &&
-                cur_ptr != gRebindings[j].replacement) {
-                indirect_symbol_bindings[i] = gRebindings[j].replacement;
-                rebound = YES;
-                break;
+        // 1. Direct resolved pointer match (safe for S_REGULAR __got / __auth_got in LC_DYLD_CHAINED_FIXUPS)
+        if (cur_stripped != 0) {
+            for (size_t j = 0; j < gRebindingsCount; j++) {
+                if (gRebindings[j].raw_target != NULL &&
+                    cur_stripped == zt_strip_ptr(gRebindings[j].raw_target) &&
+                    cur_stripped != zt_strip_ptr(gRebindings[j].replacement)) {
+                    indirect_symbol_bindings[i] = gRebindings[j].replacement;
+                    rebound = YES;
+                    break;
+                }
             }
         }
-        if (rebound) continue;
+        if (rebound || !allowSymbolTableIndexMatch) continue;
 
-        // 2. Classic indirect symbol table match
+        // 2. Classic indirect symbol table match (strictly only for S_LAZY_SYMBOL_POINTERS & S_NON_LAZY_SYMBOL_POINTERS)
         if (indirect_symbol_indices && symtab && strtab && (section->reserved1 + i) < nindirectsyms) {
             uint32_t symtab_index = indirect_symbol_indices[i];
             if (symtab_index == INDIRECT_SYMBOL_ABS || symtab_index == INDIRECT_SYMBOL_LOCAL ||
@@ -104,10 +115,6 @@ static void perform_rebinding_with_section(section_t *section,
             if (symbol_name[0] == '\0') continue;
             for (size_t j = 0; j < gRebindingsCount; j++) {
                 if (strcmp(&symbol_name[1], gRebindings[j].name) == 0) {
-                    if (gRebindings[j].replaced != NULL && *gRebindings[j].replaced == NULL &&
-                        indirect_symbol_bindings[i] != gRebindings[j].replacement) {
-                        *gRebindings[j].replaced = indirect_symbol_bindings[i];
-                    }
                     indirect_symbol_bindings[i] = gRebindings[j].replacement;
                     break;
                 }
@@ -120,7 +127,23 @@ static void rebind_symbols_for_image(const struct mach_header *header, intptr_t 
     Dl_info info;
     if (dladdr(header, &info) == 0 || !info.dli_fname) return;
 
-    if (strstr(info.dli_fname, "/Application/") == NULL) {
+    // Never rebind our own tweak or low-level libsystem/dyld/objc/CoreFoundation images
+    if (strstr(info.dli_fname, "ZTechHook") != NULL ||
+        strstr(info.dli_fname, "libsystem") != NULL ||
+        strstr(info.dli_fname, "libdyld") != NULL ||
+        strstr(info.dli_fname, "libobjc") != NULL ||
+        strstr(info.dli_fname, "CoreFoundation") != NULL ||
+        strstr(info.dli_fname, "libMobileGestalt") != NULL) {
+        return;
+    }
+
+    // Rebind app binary, embedded frameworks, and high-level UIKit/WebKit/CFNetwork frameworks
+    BOOL isAppImage = (strstr(info.dli_fname, "/Application/") != NULL ||
+                       strstr(info.dli_fname, "Zalo") != NULL);
+    BOOL isTargetSysFramework = (strstr(info.dli_fname, "/UIKit") != NULL ||
+                                 strstr(info.dli_fname, "/WebKit") != NULL ||
+                                 strstr(info.dli_fname, "/CFNetwork") != NULL);
+    if (!isAppImage && !isTargetSysFramework) {
         return;
     }
 
@@ -161,14 +184,20 @@ static void rebind_symbols_for_image(const struct mach_header *header, intptr_t 
         cur_seg_cmd = (segment_command_t *)cur;
         if (cur_seg_cmd->cmd == LC_SEGMENT_ARCH_DEPENDENT) {
             if (strcmp(cur_seg_cmd->segname, SEG_DATA) != 0 &&
-                strcmp(cur_seg_cmd->segname, SEG_DATA_CONST) != 0) {
+                strcmp(cur_seg_cmd->segname, SEG_DATA_CONST) != 0 &&
+                strcmp(cur_seg_cmd->segname, SEG_AUTH_CONST) != 0) {
                 continue;
             }
             for (uint j = 0; j < cur_seg_cmd->nsects; j++) {
                 section_t *sect = (section_t *)(cur + sizeof(segment_command_t)) + j;
                 uint32_t flags = sect->flags & SECTION_TYPE;
-                if (flags == S_LAZY_SYMBOL_POINTERS || flags == S_NON_LAZY_SYMBOL_POINTERS) {
-                    perform_rebinding_with_section(sect, slide, symtab, strtab, indirect_symtab, nindirectsyms);
+                BOOL isSymPtrSect = (flags == S_LAZY_SYMBOL_POINTERS || flags == S_NON_LAZY_SYMBOL_POINTERS);
+                BOOL isChainedGotSect = (strncmp(sect->sectname, "__got", 5) == 0 ||
+                                         strncmp(sect->sectname, "__auth_got", 10) == 0 ||
+                                         strncmp(sect->sectname, "__la_symbol_ptr", 15) == 0 ||
+                                         strncmp(sect->sectname, "__nl_symbol_ptr", 15) == 0);
+                if (isSymPtrSect || isChainedGotSect) {
+                    perform_rebinding_with_section(sect, slide, symtab, strtab, indirect_symtab, nindirectsyms, isSymPtrSect);
                 }
             }
         }
@@ -179,6 +208,7 @@ static void rebind_symbols_for_image(const struct mach_header *header, intptr_t 
 
 static NSDictionary *gCachedProfile = nil;
 static char gMachineCStr[64] = "iPhone17,2";
+static char gRealMachineCStr[64] = "iPhone9,3";
 static uint64_t gRamBytes = 8ULL * 1024ULL * 1024ULL * 1024ULL;
 static NSString *gModelNameObj = @"iPhone 16 Pro Max";
 static NSString *gMachineIdObj = @"iPhone17,2";
@@ -186,6 +216,12 @@ static NSString *gIosVersionObj = @"18.2.1";
 static NSString *gUuidObj = @"7BD46FDA-D93D-45BD-9158-7178669502DD";
 static NSString *gActiveProxyObj = @"";
 static float gBatteryFloat = 0.76f;
+
+// Pre-created CFStringRefs for 100% Lock-Free MGCopyAnswer
+static CFStringRef gCFMachineId = NULL;
+static CFStringRef gCFModelName = NULL;
+static CFStringRef gCFIosVersion = NULL;
+static CFStringRef gCFUuid = NULL;
 
 // Pre-cached Proxy Structures for Zero-Latency / Zero-Leak Networking Enforcement
 static volatile int gProxyEnabled = 0;
@@ -232,7 +268,6 @@ static void ZTechRebuildCachedProxyState(NSString *rawProxy) {
         s = [s substringFromIndex:8];
     }
 
-    // Strip any trailing slash or path
     NSRange slashRange = [s rangeOfString:@"/"];
     if (slashRange.location != NSNotFound) {
         s = [s substringToIndex:slashRange.location];
@@ -244,7 +279,6 @@ static void ZTechRebuildCachedProxyState(NSString *rawProxy) {
     NSString *pass = nil;
 
     if ([s containsString:@"@"]) {
-        // Supports both user:pass@host:port and host:port@user:pass
         NSArray<NSString *> *atParts = [s componentsSeparatedByString:@"@"];
         if (atParts.count == 2) {
             NSArray<NSString *> *p0 = [atParts[0] componentsSeparatedByString:@":"];
@@ -293,7 +327,6 @@ static void ZTechRebuildCachedProxyState(NSString *rawProxy) {
     }
 
     NSMutableDictionary *proxyDict = [NSMutableDictionary dictionary];
-    // Disable PAC & simple hostname bypass so 100% of traffic goes through the proxy
     proxyDict[@"ProxyAutoConfigEnable"] = @0;
     proxyDict[@"ProxyAutoDiscoveryEnable"] = @0;
     proxyDict[@"ExcludeSimpleHostnames"] = @0;
@@ -347,7 +380,6 @@ static void ZTechRebuildCachedProxyState(NSString *rawProxy) {
         cfProxyHttpItem[(__bridge NSString *)kCFProxyTypeKey] = (__bridge NSString *)kCFProxyTypeHTTP;
     }
 
-    // Deterministic private IPv4 derived from proxy host/port so local interface IP matches session
     uint32_t hash = (uint32_t)([host hash] ^ (NSUInteger)port);
     uint8_t lastOctet = (uint8_t)((hash % 230) + 15);
     gMaskedLocalIPv4 = htonl((192U << 24) | (168U << 16) | (1U << 8) | (uint32_t)lastOctet);
@@ -411,6 +443,16 @@ static void ZTechApplyCachedProfileValues(NSDictionary *prof) {
     NSInteger pct = [prof[@"batteryPercent"] integerValue];
     gBatteryFloat = (pct > 0 && pct <= 100) ? ((float)pct / 100.0f) : 0.76f;
 
+    if (gCFMachineId) CFRelease(gCFMachineId);
+    if (gCFModelName) CFRelease(gCFModelName);
+    if (gCFIosVersion) CFRelease(gCFIosVersion);
+    if (gCFUuid) CFRelease(gCFUuid);
+
+    gCFMachineId = CFStringCreateWithCString(kCFAllocatorDefault, [gMachineIdObj UTF8String], kCFStringEncodingUTF8);
+    gCFModelName = CFStringCreateWithCString(kCFAllocatorDefault, [gModelNameObj UTF8String], kCFStringEncodingUTF8);
+    gCFIosVersion = CFStringCreateWithCString(kCFAllocatorDefault, [gIosVersionObj UTF8String], kCFStringEncodingUTF8);
+    gCFUuid = CFStringCreateWithCString(kCFAllocatorDefault, [gUuidObj UTF8String], kCFStringEncodingUTF8);
+
     ZTechRebuildCachedProxyState(gActiveProxyObj);
 }
 
@@ -419,7 +461,24 @@ static NSDictionary *ZTechLoadProfileOnce(void) {
         return gCachedProfile;
     }
 
-    // 1. Check inside app's own sandbox container first (written directly by ZTechDeviceDatabase & ZTechVaultManager)
+    // 1. Check shared global paths FIRST (always updated by ZTech.app when user changes device)
+    NSArray<NSString *> *globalPaths = @[
+        @"/var/jb/var/mobile/Library/Preferences/com.ztech.profile.plist",
+        @"/var/mobile/Library/Preferences/com.ztech.profile.plist",
+        @"/var/jb/Library/Preferences/ZTechShared/com.ztech.profile.plist",
+        @"/Library/Preferences/ZTechShared/com.ztech.profile.plist",
+        @"/var/tmp/com.ztech.profile.plist"
+    ];
+    for (NSString *path in globalPaths) {
+        NSDictionary *dict = [NSDictionary dictionaryWithContentsOfFile:path];
+        if (dict && [dict isKindOfClass:[NSDictionary class]] && dict.count > 0) {
+            NSDictionary *norm = ZTechNormalizeProfile(dict);
+            ZTechApplyCachedProfileValues(norm);
+            return gCachedProfile;
+        }
+    }
+
+    // 2. Check inside app's own sandbox container (written by ZTechDeviceDatabase & ZTechVaultManager)
     NSString *home = NSHomeDirectory();
     if (home.length > 0) {
         NSArray<NSString *> *localPaths = @[
@@ -436,7 +495,7 @@ static NSDictionary *ZTechLoadProfileOnce(void) {
         }
     }
 
-    // 2. Check CFPreferences AnyApplication
+    // 3. Check CFPreferences AnyApplication
     CFPropertyListRef cfVal = CFPreferencesCopyAppValue(CFSTR("ZTechGlobalProfile"), kCFPreferencesAnyApplication);
     if (cfVal) {
         if (CFGetTypeID(cfVal) == CFDictionaryGetTypeID()) {
@@ -446,23 +505,6 @@ static NSDictionary *ZTechLoadProfileOnce(void) {
             return gCachedProfile;
         }
         CFRelease(cfVal);
-    }
-
-    // 3. Check shared global paths
-    NSArray<NSString *> *paths = @[
-        @"/Library/Preferences/ZTechShared/com.ztech.profile.plist",
-        @"/var/jb/Library/Preferences/ZTechShared/com.ztech.profile.plist",
-        @"/var/jb/var/mobile/Library/Preferences/com.ztech.profile.plist",
-        @"/var/mobile/Library/Preferences/com.ztech.profile.plist",
-        @"/var/tmp/com.ztech.profile.plist"
-    ];
-    for (NSString *path in paths) {
-        NSDictionary *dict = [NSDictionary dictionaryWithContentsOfFile:path];
-        if (dict && [dict isKindOfClass:[NSDictionary class]]) {
-            NSDictionary *norm = ZTechNormalizeProfile(dict);
-            ZTechApplyCachedProfileValues(norm);
-            return gCachedProfile;
-        }
     }
 
     NSDictionary *norm = ZTechNormalizeProfile(nil);
@@ -477,7 +519,6 @@ static void ZTechEnforceProxyOnConfiguration(NSURLSessionConfiguration *cfg) {
     @try {
         cfg.connectionProxyDictionary = gCachedProxyDict;
         if (@available(iOS 13.0, *)) {
-            // Prevent multipath TCP from bypassing proxy over cellular interface
             cfg.multipathServiceType = NSURLSessionMultipathServiceTypeNone;
         }
         NSMutableDictionary *headers = [NSMutableDictionary dictionaryWithDictionary:cfg.HTTPAdditionalHeaders ?: @{}];
@@ -485,7 +526,6 @@ static void ZTechEnforceProxyOnConfiguration(NSURLSessionConfiguration *cfg) {
             headers[@"Proxy-Authorization"] = gCachedProxyAuthHeader;
             headers[@"Authorization-Proxy"] = gCachedProxyAuthHeader;
         }
-        // Strip any IP-forwarding headers
         [headers removeObjectForKey:@"X-Forwarded-For"];
         [headers removeObjectForKey:@"X-Real-IP"];
         [headers removeObjectForKey:@"Client-IP"];
@@ -594,7 +634,6 @@ static int (*orig_getifaddrs)(struct ifaddrs **ifap) = NULL;
 static int hooked_getifaddrs(struct ifaddrs **ifap) {
     int ret = orig_getifaddrs ? orig_getifaddrs(ifap) : -1;
     if (ret == 0 && ifap != NULL && *ifap != NULL && gProxyEnabled) {
-        // Mask cellular (pdp_ip*) and Wi-Fi (en*) local/public IPv4 & IPv6 addresses so Zalo cannot read real carrier IP
         struct ifaddrs *cur = *ifap;
         while (cur != NULL) {
             if (cur->ifa_addr != NULL && cur->ifa_name != NULL && strncmp(cur->ifa_name, "lo", 2) != 0) {
@@ -604,7 +643,6 @@ static int hooked_getifaddrs(struct ifaddrs **ifap) {
                     sin->sin_addr.s_addr = gMaskedLocalIPv4;
                 } else if (fam == AF_INET6) {
                     struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *)cur->ifa_addr;
-                    // Replace global carrier IPv6 with link-local fe80::1 so public 4G IPv6 never leaks
                     memset(&sin6->sin6_addr, 0, sizeof(struct in6_addr));
                     sin6->sin6_addr.s6_addr[0] = 0xfe;
                     sin6->sin6_addr.s6_addr[1] = 0x80;
@@ -680,22 +718,85 @@ static int hooked_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, 
 static CFTypeRef (*orig_MGCopyAnswer)(CFStringRef prop) = NULL;
 static CFTypeRef hooked_MGCopyAnswer(CFStringRef prop) {
     if (prop != NULL) {
-        if (CFStringCompare(prop, CFSTR("ProductType"), 0) == kCFCompareEqualTo) {
-            return (__bridge_retained CFTypeRef)[gMachineIdObj copy];
+        if (CFStringCompare(prop, CFSTR("ProductType"), 0) == kCFCompareEqualTo ||
+            CFStringCompare(prop, CFSTR("HWModelStr"), 0) == kCFCompareEqualTo) {
+            if (gCFMachineId) return CFRetain(gCFMachineId);
         } else if (CFStringCompare(prop, CFSTR("MarketingName"), 0) == kCFCompareEqualTo ||
                    CFStringCompare(prop, CFSTR("DeviceName"), 0) == kCFCompareEqualTo ||
                    CFStringCompare(prop, CFSTR("UserAssignedDeviceName"), 0) == kCFCompareEqualTo) {
-            return (__bridge_retained CFTypeRef)[gModelNameObj copy];
+            if (gCFModelName) return CFRetain(gCFModelName);
         } else if (CFStringCompare(prop, CFSTR("ProductVersion"), 0) == kCFCompareEqualTo) {
-            return (__bridge_retained CFTypeRef)[gIosVersionObj copy];
+            if (gCFIosVersion) return CFRetain(gCFIosVersion);
         } else if (CFStringCompare(prop, CFSTR("UniqueDeviceID"), 0) == kCFCompareEqualTo) {
-            return (__bridge_retained CFTypeRef)[gUuidObj copy];
+            if (gCFUuid) return CFRetain(gCFUuid);
         }
     }
     return orig_MGCopyAnswer ? orig_MGCopyAnswer(prop) : NULL;
 }
 
-#pragma mark - Objective-C Swizzles (UIDevice, NSProcessInfo, Universal iPhone Model UILabel & WKWebView)
+#pragma mark - Universal iPhone 16 Spoofing Across NSDictionary, UILabel, NSAttributedString, JSON & WKWebView
+
+static NSRegularExpression *gIPhoneModelRegex = nil;
+
+static inline NSString *ZTechReplaceIPhoneStringIfNeeded(NSString *input) {
+    if (![input isKindOfClass:[NSString class]] || input.length < 7) return input;
+    if ([input rangeOfString:@"iPhone" options:NSCaseInsensitiveSearch].location == NSNotFound) {
+        return input;
+    }
+    NSString *targetModel = gModelNameObj ?: @"iPhone 16 Pro Max";
+    if ([input isEqualToString:targetModel]) {
+        return input;
+    }
+    // Do not alter URLs, file paths, or bundle identifiers
+    if ([input containsString:@"/"] || [input containsString:@"_"] || [input containsString:@"com."]) {
+        return input;
+    }
+    // Exact match for raw machine IDs (e.g. "iPhone17,2", "iPhone9,3")
+    if ([input isEqualToString:gMachineIdObj]) {
+        return targetModel;
+    }
+    if (gIPhoneModelRegex != nil) {
+        return [gIPhoneModelRegex stringByReplacingMatchesInString:input
+                                                           options:0
+                                                             range:NSMakeRange(0, input.length)
+                                                      withTemplate:targetModel];
+    }
+    return input;
+}
+
+// Intercept NSDictionary lookups for "iPhone17,x" in Zalo's internal device mapping dictionary!
+static id (*orig_NSDict_objectForKey)(id, SEL, id) = NULL;
+static id swizzled_NSDict_objectForKey(id self, SEL _cmd, id aKey) {
+    id val = orig_NSDict_objectForKey ? orig_NSDict_objectForKey(self, _cmd, aKey) : nil;
+    if (val == nil && [aKey isKindOfClass:[NSString class]]) {
+        NSString *k = (NSString *)aKey;
+        if ([k hasPrefix:@"iPhone17,"] || [k hasPrefix:@"iPhone16,"]) {
+            // Check if this dictionary is a hardware machineId -> Marketing Name map
+            if (orig_NSDict_objectForKey(self, _cmd, @"iPhone10,1") != nil ||
+                orig_NSDict_objectForKey(self, _cmd, @"iPhone11,2") != nil ||
+                orig_NSDict_objectForKey(self, _cmd, @"iPhone9,1") != nil) {
+                return gModelNameObj ?: @"iPhone 16 Pro Max";
+            }
+        }
+    }
+    return val;
+}
+
+static id (*orig_NSDict_objectForKeyedSubscript)(id, SEL, id) = NULL;
+static id swizzled_NSDict_objectForKeyedSubscript(id self, SEL _cmd, id aKey) {
+    id val = orig_NSDict_objectForKeyedSubscript ? orig_NSDict_objectForKeyedSubscript(self, _cmd, aKey) : nil;
+    if (val == nil && [aKey isKindOfClass:[NSString class]]) {
+        NSString *k = (NSString *)aKey;
+        if ([k hasPrefix:@"iPhone17,"] || [k hasPrefix:@"iPhone16,"]) {
+            if (orig_NSDict_objectForKeyedSubscript(self, _cmd, @"iPhone10,1") != nil ||
+                orig_NSDict_objectForKeyedSubscript(self, _cmd, @"iPhone11,2") != nil ||
+                orig_NSDict_objectForKeyedSubscript(self, _cmd, @"iPhone9,1") != nil) {
+                return gModelNameObj ?: @"iPhone 16 Pro Max";
+            }
+        }
+    }
+    return val;
+}
 
 static NSString *(*orig_systemVersion)(id, SEL) = NULL;
 static NSString *swizzled_systemVersion(id self, SEL _cmd) {
@@ -741,24 +842,87 @@ static unsigned long long swizzled_physicalMemory(id self, SEL _cmd) {
     return (unsigned long long)gRamBytes;
 }
 
-static NSRegularExpression *gIPhoneModelRegex = nil;
-
 static void (*orig_UILabel_setText)(id, SEL, NSString *) = NULL;
 static void swizzled_UILabel_setText(id self, SEL _cmd, NSString *text) {
-    if ([text isKindOfClass:[NSString class]] && text.length >= 7) {
-        if ([text rangeOfString:@"iPhone"].location != NSNotFound) {
-            NSString *modelName = gModelNameObj ?: @"iPhone 16 Pro Max";
-            if (![text isEqualToString:modelName] && gIPhoneModelRegex != nil) {
-                text = [gIPhoneModelRegex stringByReplacingMatchesInString:text
-                                                                   options:0
-                                                                     range:NSMakeRange(0, text.length)
-                                                              withTemplate:modelName];
-            }
-        }
-    }
+    text = ZTechReplaceIPhoneStringIfNeeded(text);
     if (orig_UILabel_setText) {
         orig_UILabel_setText(self, _cmd, text);
     }
+}
+
+static void (*orig_UILabel_setAttributedText)(id, SEL, NSAttributedString *) = NULL;
+static void swizzled_UILabel_setAttributedText(id self, SEL _cmd, NSAttributedString *attrText) {
+    if ([attrText isKindOfClass:[NSAttributedString class]] && attrText.length >= 7) {
+        NSString *rawStr = attrText.string;
+        if ([rawStr rangeOfString:@"iPhone" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+            NSString *replaced = ZTechReplaceIPhoneStringIfNeeded(rawStr);
+            if (![replaced isEqualToString:rawStr]) {
+                NSMutableAttributedString *mut = [attrText mutableCopy];
+                [mut.mutableString setString:replaced];
+                attrText = mut;
+            }
+        }
+    }
+    if (orig_UILabel_setAttributedText) {
+        orig_UILabel_setAttributedText(self, _cmd, attrText);
+    }
+}
+
+// Covers Texture / AsyncDisplayKit (ASTextNode), YYLabel, CATextLayer, and CoreText in Zalo!
+static id (*orig_NSAttrStr_initWithString)(id, SEL, NSString *) = NULL;
+static id swizzled_NSAttrStr_initWithString(id self, SEL _cmd, NSString *str) {
+    str = ZTechReplaceIPhoneStringIfNeeded(str);
+    return orig_NSAttrStr_initWithString ? orig_NSAttrStr_initWithString(self, _cmd, str) : nil;
+}
+
+static id (*orig_NSAttrStr_initWithStringAttrs)(id, SEL, NSString *, NSDictionary *) = NULL;
+static id swizzled_NSAttrStr_initWithStringAttrs(id self, SEL _cmd, NSString *str, NSDictionary *attrs) {
+    str = ZTechReplaceIPhoneStringIfNeeded(str);
+    return orig_NSAttrStr_initWithStringAttrs ? orig_NSAttrStr_initWithStringAttrs(self, _cmd, str, attrs) : nil;
+}
+
+// Recursively sanitize parsed JSON objects if raw JSON data contained "iPhone"
+static id ZTechSanitizeJSONObject(id obj, int depth) {
+    if (!obj || depth > 8) return obj;
+    if ([obj isKindOfClass:[NSString class]]) {
+        return ZTechReplaceIPhoneStringIfNeeded((NSString *)obj);
+    } else if ([obj isKindOfClass:[NSDictionary class]]) {
+        NSDictionary *dict = (NSDictionary *)obj;
+        NSMutableDictionary *mut = nil;
+        for (id k in dict) {
+            id v = dict[k];
+            id newV = ZTechSanitizeJSONObject(v, depth + 1);
+            if (newV != v) {
+                if (!mut) mut = [dict mutableCopy];
+                mut[k] = newV;
+            }
+        }
+        return mut ?: dict;
+    } else if ([obj isKindOfClass:[NSArray class]]) {
+        NSArray *arr = (NSArray *)obj;
+        NSMutableArray *mut = nil;
+        for (NSUInteger i = 0; i < arr.count; i++) {
+            id v = arr[i];
+            id newV = ZTechSanitizeJSONObject(v, depth + 1);
+            if (newV != v) {
+                if (!mut) mut = [arr mutableCopy];
+                mut[i] = newV;
+            }
+        }
+        return mut ?: arr;
+    }
+    return obj;
+}
+
+static id (*orig_JSONObjectWithData)(id, SEL, NSData *, NSJSONReadingOptions, NSError **) = NULL;
+static id swizzled_JSONObjectWithData(id self, SEL _cmd, NSData *data, NSJSONReadingOptions opt, NSError **error) {
+    id res = orig_JSONObjectWithData ? orig_JSONObjectWithData(self, _cmd, data, opt, error) : nil;
+    if (res && [data isKindOfClass:[NSData class]] && data.length >= 6 && data.length < 524288) {
+        if (memmem(data.bytes, data.length, "iPhone", 6) != NULL) {
+            res = ZTechSanitizeJSONObject(res, 0);
+        }
+    }
+    return res;
 }
 
 static id (*orig_WKWebView_initWithFrameConfig)(id, SEL, CGRect, id) = NULL;
@@ -774,7 +938,6 @@ static id swizzled_WKWebView_initWithFrameConfig(id self, SEL _cmd, CGRect frame
             if (usrScriptCls && [configuration respondsToSelector:uccSel]) {
                 id ucc = ((id (*)(id, SEL))objc_msgSend)(configuration, uccSel);
                 if (ucc && [ucc respondsToSelector:addSel]) {
-                    // 1. WebRTC STUN/ICE Leak Blocker when Proxy is enabled (AtDocumentStart = 0)
                     if (gProxyEnabled) {
                         NSString *rtcJs = @"(function(){"
                             @"var origRTC=window.RTCPeerConnection||window.webkitRTCPeerConnection;"
@@ -794,12 +957,11 @@ static id swizzled_WKWebView_initWithFrameConfig(id self, SEL _cmd, CGRect frame
                         }
                     }
 
-                    // 2. Universal iPhone Model Replacement for Zalo Device Manager (AtDocumentEnd = 1)
                     NSString *safeModel = [(gModelNameObj ?: @"iPhone 16 Pro Max") stringByReplacingOccurrencesOfString:@"'" withString:@""];
                     NSString *js = [NSString stringWithFormat:
                         @"(function(){"
                         @"var m='%@';"
-                        @"var re=/iPhone\\s*(?:6s?|7|8|SE|X[SR]?|1[1-5])(?:\\s*(?:Plus|Pro\\s*Max|Pro|mini))?/gi;"
+                        @"var re=/iPhone(?:\\s*(?:6s?|7|8|SE|X[SR]?|1[1-6]e?)(?:\\s*(?:Plus|Pro\\s*Max|Pro|mini))?|\\d+,\\d+)/gi;"
                         @"function fix(){"
                         @"if(!document.body||!document.body.innerText||document.body.innerText.indexOf('iPhone')===-1)return;"
                         @"var w=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT,null,false),n;"
@@ -809,7 +971,7 @@ static id swizzled_WKWebView_initWithFrameConfig(id self, SEL _cmd, CGRect frame
                         @"}"
                         @"}"
                         @"}"
-                        @"setTimeout(fix,200);setTimeout(fix,800);setTimeout(fix,1800);"
+                        @"setTimeout(fix,150);setTimeout(fix,500);setInterval(fix,900);"
                         @"})();", safeModel];
 
                     id s1 = ((id (*)(id, SEL))objc_msgSend)(usrScriptCls, allocSel);
@@ -1082,6 +1244,12 @@ static void ZTechHookInit(void) {
             return;
         }
 
+        struct utsname realUts;
+        if (uname(&realUts) == 0 && realUts.machine[0] != '\0') {
+            strncpy(gRealMachineCStr, realUts.machine, sizeof(gRealMachineCStr) - 1);
+            gRealMachineCStr[sizeof(gRealMachineCStr) - 1] = '\0';
+        }
+
         ZTechEnsureContainerDirectoriesExist(NSHomeDirectory());
 
         Boolean keyExists = false;
@@ -1090,7 +1258,8 @@ static void ZTechHookInit(void) {
             return;
         }
 
-        gIPhoneModelRegex = [NSRegularExpression regularExpressionWithPattern:@"iPhone(?:\\s*(?:6s?|7|8|SE|X[SR]?|1[1-5])(?:\\s*(?:Plus|Pro\\s*Max|Pro|mini))?|\\d+,\\d+)"
+        // Matches any iPhone marketing name (iPhone 6..16 Pro Max) OR raw machine ID (iPhone9,3 / iPhone17,2)
+        gIPhoneModelRegex = [NSRegularExpression regularExpressionWithPattern:@"iPhone(?:\\s*(?:6s?|7|8|SE|X[SR]?|1[1-6]e?)(?:\\s*(?:Plus|Pro\\s*Max|Pro|mini))?|\\d+,\\d+)"
                                                                       options:NSRegularExpressionCaseInsensitive
                                                                         error:nil];
 
@@ -1118,7 +1287,7 @@ static void ZTechHookInit(void) {
             });
         }
 
-        // 1. Objective-C Swizzles on UIDevice, NSProcessInfo, NSURLSessionConfiguration, NSURLSession, UILabel & WKWebView
+        // 1. Objective-C Swizzles on UIDevice, NSProcessInfo, NSURLSessionConfiguration, NSURLSession
         Class uiDeviceCls = [UIDevice class];
         Method mSysVer = class_getInstanceMethod(uiDeviceCls, @selector(systemVersion));
         if (mSysVer) {
@@ -1202,12 +1371,49 @@ static void ZTechHookInit(void) {
             method_setImplementation(mDataTaskReqComp, (IMP)swizzled_dataTaskWithRequestCompletion);
         }
 
+        // 2. Zalo-Specific Deep Hooks (NSDictionary iPhone17 Lookup, UILabel, NSAttributedString/ASTextNode, JSON & WKWebView)
         if ([lowerBundle containsString:@"zalo"] || [lowerBundle containsString:@"vng"]) {
+            Class dictCls = NSClassFromString(@"__NSDictionaryI") ?: [NSDictionary class];
+            Method mObjKey = class_getInstanceMethod(dictCls, @selector(objectForKey:));
+            if (mObjKey) {
+                orig_NSDict_objectForKey = (void *)method_getImplementation(mObjKey);
+                method_setImplementation(mObjKey, (IMP)swizzled_NSDict_objectForKey);
+            }
+            Method mObjSub = class_getInstanceMethod(dictCls, @selector(objectForKeyedSubscript:));
+            if (mObjSub) {
+                orig_NSDict_objectForKeyedSubscript = (void *)method_getImplementation(mObjSub);
+                method_setImplementation(mObjSub, (IMP)swizzled_NSDict_objectForKeyedSubscript);
+            }
+
             Class lblCls = [UILabel class];
             Method mSetTxt = class_getInstanceMethod(lblCls, @selector(setText:));
             if (mSetTxt) {
                 orig_UILabel_setText = (void *)method_getImplementation(mSetTxt);
                 method_setImplementation(mSetTxt, (IMP)swizzled_UILabel_setText);
+            }
+            Method mSetAttrTxt = class_getInstanceMethod(lblCls, @selector(setAttributedText:));
+            if (mSetAttrTxt) {
+                orig_UILabel_setAttributedText = (void *)method_getImplementation(mSetAttrTxt);
+                method_setImplementation(mSetAttrTxt, (IMP)swizzled_UILabel_setAttributedText);
+            }
+
+            Class attrStrCls = NSClassFromString(@"NSConcreteAttributedString") ?: [NSAttributedString class];
+            Method mAttrInit1 = class_getInstanceMethod(attrStrCls, @selector(initWithString:));
+            if (mAttrInit1) {
+                orig_NSAttrStr_initWithString = (void *)method_getImplementation(mAttrInit1);
+                method_setImplementation(mAttrInit1, (IMP)swizzled_NSAttrStr_initWithString);
+            }
+            Method mAttrInit2 = class_getInstanceMethod(attrStrCls, @selector(initWithString:attributes:));
+            if (mAttrInit2) {
+                orig_NSAttrStr_initWithStringAttrs = (void *)method_getImplementation(mAttrInit2);
+                method_setImplementation(mAttrInit2, (IMP)swizzled_NSAttrStr_initWithStringAttrs);
+            }
+
+            Class jsonCls = [NSJSONSerialization class];
+            Method mJsonData = class_getClassMethod(jsonCls, @selector(JSONObjectWithData:options:error:));
+            if (mJsonData) {
+                orig_JSONObjectWithData = (void *)method_getImplementation(mJsonData);
+                method_setImplementation(mJsonData, (IMP)swizzled_JSONObjectWithData);
             }
 
             Class wkCls = NSClassFromString(@"WKWebView");
@@ -1220,7 +1426,7 @@ static void ZTechHookInit(void) {
             }
         }
 
-        // 2. Safe Mach-O Symbol Rebinding (App Binary Only + vm_protect, zero global libSystem hooks)
+        // 3. Safe Mach-O Symbol Rebinding (Covers __got, __auth_got, __la_symbol_ptr, __nl_symbol_ptr)
         void *raw_uname = dlsym(RTLD_DEFAULT, "uname");
         void *raw_sysctlbyname = dlsym(RTLD_DEFAULT, "sysctlbyname");
         void *raw_sysctl = dlsym(RTLD_DEFAULT, "sysctl");
@@ -1239,14 +1445,14 @@ static void ZTechHookInit(void) {
         orig_CFStreamCreatePairWithSocketToHost = raw_CFStreamSocket;
         orig_getifaddrs = raw_getifaddrs;
 
-        gRebindings[0] = (struct zt_rebinding){"uname", (void *)hooked_uname, raw_uname, (void **)&orig_uname};
-        gRebindings[1] = (struct zt_rebinding){"sysctlbyname", (void *)hooked_sysctlbyname, raw_sysctlbyname, (void **)&orig_sysctlbyname};
-        gRebindings[2] = (struct zt_rebinding){"sysctl", (void *)hooked_sysctl, raw_sysctl, (void **)&orig_sysctl};
-        gRebindings[3] = (struct zt_rebinding){"MGCopyAnswer", (void *)hooked_MGCopyAnswer, raw_MGCopyAnswer, (void **)&orig_MGCopyAnswer};
-        gRebindings[4] = (struct zt_rebinding){"CFNetworkCopySystemProxySettings", (void *)hooked_CFNetworkCopySystemProxySettings, raw_CFProxy, (void **)&orig_CFNetworkCopySystemProxySettings};
-        gRebindings[5] = (struct zt_rebinding){"CFNetworkCopyProxiesForURL", (void *)hooked_CFNetworkCopyProxiesForURL, raw_CFProxiesForURL, (void **)&orig_CFNetworkCopyProxiesForURL};
-        gRebindings[6] = (struct zt_rebinding){"CFStreamCreatePairWithSocketToHost", (void *)hooked_CFStreamCreatePairWithSocketToHost, raw_CFStreamSocket, (void **)&orig_CFStreamCreatePairWithSocketToHost};
-        gRebindings[7] = (struct zt_rebinding){"getifaddrs", (void *)hooked_getifaddrs, raw_getifaddrs, (void **)&orig_getifaddrs};
+        gRebindings[0] = (struct zt_rebinding){"uname", (void *)hooked_uname, raw_uname};
+        gRebindings[1] = (struct zt_rebinding){"sysctlbyname", (void *)hooked_sysctlbyname, raw_sysctlbyname};
+        gRebindings[2] = (struct zt_rebinding){"sysctl", (void *)hooked_sysctl, raw_sysctl};
+        gRebindings[3] = (struct zt_rebinding){"MGCopyAnswer", (void *)hooked_MGCopyAnswer, raw_MGCopyAnswer};
+        gRebindings[4] = (struct zt_rebinding){"CFNetworkCopySystemProxySettings", (void *)hooked_CFNetworkCopySystemProxySettings, raw_CFProxy};
+        gRebindings[5] = (struct zt_rebinding){"CFNetworkCopyProxiesForURL", (void *)hooked_CFNetworkCopyProxiesForURL, raw_CFProxiesForURL};
+        gRebindings[6] = (struct zt_rebinding){"CFStreamCreatePairWithSocketToHost", (void *)hooked_CFStreamCreatePairWithSocketToHost, raw_CFStreamSocket};
+        gRebindings[7] = (struct zt_rebinding){"getifaddrs", (void *)hooked_getifaddrs, raw_getifaddrs};
         gRebindingsCount = 8;
 
         _dyld_register_func_for_add_image(rebind_symbols_for_image);

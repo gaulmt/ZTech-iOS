@@ -1446,6 +1446,14 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
 - (void)onTapSelectModelTierSegment:(UIButton *)sender {
     self.currentModelTier = (ZTechModelTierFilter)sender.tag;
     [[NSUserDefaults standardUserDefaults] setInteger:self.currentModelTier forKey:@"ZTech_ModelTier"];
+    if (self.currentModelTier == ZTechModelTieriPhone16Only || self.currentModelTier == ZTechModelTierHighEnd) {
+        if (self.lockModelSwitch.isOn || self.sameScreenSwitch.isOn || self.matchChipSwitch.isOn) {
+            [self.lockModelSwitch setOn:NO animated:YES];
+            [self.sameScreenSwitch setOn:NO animated:YES];
+            [self.matchChipSwitch setOn:NO animated:YES];
+            [self onSwitchChanged:self.lockModelSwitch];
+        }
+    }
     [[NSUserDefaults standardUserDefaults] synchronize];
     [self refreshModelTierSegments];
     [self onTapChangeDevice];
@@ -1454,10 +1462,17 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
 - (void)onTapQuickLaunchZalo {
     UIImpactFeedbackGenerator *gen = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleMedium];
     [gen impactOccurred];
-    [self showLoadingWithTitle:@"ĐANG MỞ ZALO" subtitle:@"Đang khởi động ứng dụng Zalo..."];
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.15 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        [ZTechVaultManager launchZaloApp];
-        [self hideLoadingOverlayAfterDelay:0.45];
+    [self showLoadingWithTitle:@"ĐANG MỞ ZALO" subtitle:[NSString stringWithFormat:@"Đang nạp cấu hình %@ & mở Zalo...", self.currentProfile.modelName ?: @"máy ảo"]];
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
+        if (self.currentProfile) {
+            [ZTechDeviceDatabase writeProfileFiles:self.currentProfile error:nil];
+        }
+        [ZTechVaultManager killZaloProcess];
+        [NSThread sleepForTimeInterval:0.25];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [ZTechVaultManager launchZaloApp];
+            [self hideLoadingOverlayAfterDelay:0.45];
+        });
     });
 }
 
@@ -2644,6 +2659,9 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
                                                                       matchChip:self.matchChipSwitch.isOn
                                                                       modelTier:self.currentModelTier
                                                                     currentCity:self.currentProfile.city];
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        [ZTechVaultManager killZaloProcess];
+    });
     [UIView transitionWithView:self.tabFeaturesStack
                       duration:0.18
                        options:UIViewAnimationOptionTransitionCrossDissolve
