@@ -23,6 +23,15 @@
 #import <string.h>
 #import <notify.h>
 
+@interface NSObject (ZTechPrivateRadios)
+- (void)setAirplaneMode:(BOOL)enabled;
+- (BOOL)airplaneMode;
+- (void)synchronize;
+- (void)setInAirplaneMode:(BOOL)enabled;
+- (BOOL)isInAirplaneMode;
++ (id)sharedInstance;
+@end
+
 #pragma mark - Safe Embedded Fishhook (Supports Chained Fixups __got + Lazy/Non-Lazy Symbol Pointers)
 
 #ifdef __LP64__

@@ -10,6 +10,12 @@
 #import <dlfcn.h>
 #import <notify.h>
 
+@interface NSObject (ZTechPrivateRadios)
+- (void)setAirplaneMode:(BOOL)enabled;
+- (BOOL)airplaneMode;
+- (void)synchronize;
+@end
+
 extern char **environ;
 
 @implementation ZTechVaultAccount

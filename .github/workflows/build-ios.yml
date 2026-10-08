@@ -33,7 +33,7 @@ jobs:
           mv layout/DEBIAN/postinst.lf layout/DEBIAN/postinst
           chmod 0755 layout/DEBIAN/postinst
           rm -rf packages .theos
-          make clean package FINALPACKAGE=1
+          make clean package FINALPACKAGE=1 messages=yes 2>&1 | tee build_rootful.log || (tail -n 60 build_rootful.log > "$GITHUB_STEP_SUMMARY"; exit 1)
           cp packages/*.deb "$GITHUB_WORKSPACE/build_out/gaulmt_Tech_Rootful_arm.deb"
 
           mkdir -p "$GITHUB_WORKSPACE/build_out/Payload"
