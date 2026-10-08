@@ -82,9 +82,9 @@ extern char **environ;
     p.identifier = dict[@"identifier"] ?: [[NSUUID UUID] UUIDString];
     p.modelName = dict[@"modelName"] ?: @"iPhone 16 Pro Max";
     p.machineId = dict[@"machineId"] ?: @"iPhone17,2";
-    if ([p.machineId hasPrefix:@"iPhone9,"] || [p.machineId hasPrefix:@"iPhone8,"] || [p.machineId hasPrefix:@"iPhone7,"]) {
-        p.machineId = @"iPhone10,4";
-        p.modelName = @"iPhone 8";
+    if (!p.modelName || p.modelName.length == 0) {
+        p.modelName = @"iPhone 16 Pro Max";
+        p.machineId = @"iPhone17,2";
     }
     NSString *ver = dict[@"iosVersion"] ?: @"18.2.1";
     if ([ver integerValue] < 16) {
@@ -271,7 +271,7 @@ extern char **environ;
         }
     }
 
-    if (candidates.count > 1 && prevMachine.length > 0) {
+    if (!lockModel && prevMachine.length > 0) {
         NSMutableArray<NSDictionary *> *nonRepeat = [NSMutableArray array];
         for (NSDictionary *spec in candidates) {
             if (![spec[@"machine"] isEqualToString:prevMachine]) {
@@ -280,6 +280,15 @@ extern char **environ;
         }
         if (nonRepeat.count > 0) {
             candidates = nonRepeat;
+        } else {
+            for (NSDictionary *spec in allSpecs) {
+                if (![spec[@"machine"] isEqualToString:prevMachine]) {
+                    [nonRepeat addObject:spec];
+                }
+            }
+            if (nonRepeat.count > 0) {
+                candidates = nonRepeat;
+            }
         }
     }
 
@@ -327,16 +336,7 @@ extern char **environ;
 }
 
 + (void)terminateBackgroundInspectors {
-    NSArray<NSString *> *killBins = @[@"/var/jb/usr/bin/killall", @"/usr/bin/killall"];
-    NSFileManager *fm = [NSFileManager defaultManager];
-    for (NSString *bin in killBins) {
-        if ([fm isExecutableFileAtPath:bin]) {
-            pid_t pid;
-            const char *args[] = { [bin UTF8String], "-9", "AIDA64", NULL };
-            posix_spawn(&pid, [bin UTF8String], NULL, NULL, (char *const *)args, environ);
-            break;
-        }
-    }
+    [ZTechVaultManager killZaloProcess];
 }
 
 + (NSString *)storageDirectoryPath {
@@ -527,17 +527,10 @@ extern char **environ;
     NSInteger cleanedItems = 0;
     NSFileManager *fm = [NSFileManager defaultManager];
 
-    NSArray<NSString *> *killBins = @[@"/var/jb/usr/bin/killall", @"/usr/bin/killall"];
-    for (NSString *bin in killBins) {
-        if ([fm isExecutableFileAtPath:bin]) {
-            pid_t pid1, pid2;
-            const char *args1[] = { [bin UTF8String], "-9", "Zalo", NULL };
-            posix_spawn(&pid1, [bin UTF8String], NULL, NULL, (char *const *)args1, environ);
-            const char *args2[] = { [bin UTF8String], "-9", "AIDA64", NULL };
-            posix_spawn(&pid2, [bin UTF8String], NULL, NULL, (char *const *)args2, environ);
-            break;
-        }
-    }
+    // Guarantee Zalo, AIDA64 and Safari are terminated via kernel sysctl and clean Safari cookies/cache
+    [ZTechVaultManager killZaloProcess];
+    [ZTechVaultManager cleanSafariCookiesAndWebsiteData];
+    cleanedItems += 5;
 
     NSMutableSet<NSString *> *zaloContainers = [NSMutableSet set];
     NSString *mainZalo = [ZTechVaultManager findZaloDataContainerPath];

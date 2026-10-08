@@ -3,6 +3,8 @@
 #import <objc/runtime.h>
 #import <objc/message.h>
 #import <sys/stat.h>
+#import <sys/sysctl.h>
+#import <signal.h>
 #import <unistd.h>
 #import <spawn.h>
 
@@ -109,14 +111,132 @@ extern char **environ;
 }
 
 + (void)killZaloProcess {
+    // 1. Direct Darwin kernel sysctl process scan (guaranteed on all jailbreaks & TrollStore)
+    int mib[4] = { CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0 };
+    size_t size = 0;
+    if (sysctl(mib, 4, NULL, &size, NULL, 0) == 0 && size > 0) {
+        struct kinfo_proc *procs = malloc(size);
+        if (procs && sysctl(mib, 4, procs, &size, NULL, 0) == 0) {
+            int count = (int)(size / sizeof(struct kinfo_proc));
+            for (int i = 0; i < count; i++) {
+                const char *name = procs[i].kp_proc.p_comm;
+                if (name && (strcasecmp(name, "Zalo") == 0 ||
+                             strcasecmp(name, "vn.com.vng.zalo") == 0 ||
+                             strcasecmp(name, "AIDA64") == 0)) {
+                    kill(procs[i].kp_proc.p_pid, SIGKILL);
+                }
+            }
+        }
+        if (procs) free(procs);
+    }
+
+    // 2. Fallback via posix_spawn killall
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSArray<NSString *> *killBins = @[@"/var/jb/usr/bin/killall", @"/usr/bin/killall"];
+    for (NSString *bin in killBins) {
+        if ([fm isExecutableFileAtPath:bin]) {
+            pid_t pid1, pid2;
+            const char *args1[] = { [bin UTF8String], "-9", "Zalo", NULL };
+            posix_spawn(&pid1, [bin UTF8String], NULL, NULL, (char *const *)args1, environ);
+            const char *args2[] = { [bin UTF8String], "-9", "vn.com.vng.zalo", NULL };
+            posix_spawn(&pid2, [bin UTF8String], NULL, NULL, (char *const *)args2, environ);
+            break;
+        }
+    }
+}
+
++ (void)cleanSafariCookiesAndWebsiteData {
+    // 1. Terminate MobileSafari & SafariViewService processes via direct kernel kill
+    int mib[4] = { CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0 };
+    size_t size = 0;
+    if (sysctl(mib, 4, NULL, &size, NULL, 0) == 0 && size > 0) {
+        struct kinfo_proc *procs = malloc(size);
+        if (procs && sysctl(mib, 4, procs, &size, NULL, 0) == 0) {
+            int count = (int)(size / sizeof(struct kinfo_proc));
+            for (int i = 0; i < count; i++) {
+                const char *name = procs[i].kp_proc.p_comm;
+                if (name && (strcasecmp(name, "MobileSafari") == 0 ||
+                             strcasecmp(name, "SafariViewService") == 0 ||
+                             strcasecmp(name, "com.apple.WebKit.WebContent") == 0 ||
+                             strcasecmp(name, "com.apple.WebKit.Networking") == 0)) {
+                    kill(procs[i].kp_proc.p_pid, SIGKILL);
+                }
+            }
+        }
+        if (procs) free(procs);
+    }
+
+    // Fallback killall MobileSafari
     NSFileManager *fm = [NSFileManager defaultManager];
     NSArray<NSString *> *killBins = @[@"/var/jb/usr/bin/killall", @"/usr/bin/killall"];
     for (NSString *bin in killBins) {
         if ([fm isExecutableFileAtPath:bin]) {
             pid_t pid;
-            const char *args[] = { [bin UTF8String], "-9", "Zalo", NULL };
+            const char *args[] = { [bin UTF8String], "-9", "MobileSafari", NULL };
             posix_spawn(&pid, [bin UTF8String], NULL, NULL, (char *const *)args, environ);
             break;
+        }
+    }
+
+    // 2. Clear in-memory HTTP Cookie storage
+    NSHTTPCookieStorage *storage = [NSHTTPCookieStorage sharedHTTPCookieStorage];
+    for (NSHTTPCookie *cookie in [storage.cookies copy]) {
+        [storage deleteCookie:cookie];
+    }
+
+    // 3. Delete Safari Cookies & Web caches from shared system paths
+    NSArray<NSString *> *safariPaths = @[
+        @"/var/mobile/Library/Cookies",
+        @"/var/jb/var/mobile/Library/Cookies",
+        @"/var/mobile/Library/Safari",
+        @"/var/jb/var/mobile/Library/Safari",
+        @"/var/mobile/Library/Caches/com.apple.mobilesafari",
+        @"/var/jb/var/mobile/Library/Caches/com.apple.mobilesafari",
+        @"/var/mobile/Library/WebKit/com.apple.mobilesafari",
+        @"/var/jb/var/mobile/Library/WebKit/com.apple.mobilesafari",
+        @"/var/mobile/Library/WebKit/WebsiteData",
+        @"/var/jb/var/mobile/Library/WebKit/WebsiteData"
+    ];
+
+    for (NSString *sp in safariPaths) {
+        if ([fm fileExistsAtPath:sp]) {
+            NSArray *items = [fm contentsOfDirectoryAtPath:sp error:nil];
+            for (NSString *sub in items) {
+                if ([sub containsString:@"Cookies"] ||
+                    [sub containsString:@"History"] ||
+                    [sub containsString:@"Favicons"] ||
+                    [sub containsString:@"TouchIcons"] ||
+                    [sub containsString:@"Cache"] ||
+                    [sub containsString:@"WebpageIcons"] ||
+                    [sub containsString:@"LocalData"] ||
+                    [sub containsString:@"IndexedDB"] ||
+                    [sub containsString:@"LocalStorage"] ||
+                    [sub hasSuffix:@".db"] ||
+                    [sub hasSuffix:@".db-wal"] ||
+                    [sub hasSuffix:@".db-shm"] ||
+                    [sub hasSuffix:@".binarycookies"]) {
+                    [fm removeItemAtPath:[sp stringByAppendingPathComponent:sub] error:nil];
+                }
+            }
+        }
+    }
+
+    // 4. Scan MobileSafari Data Container under /var/mobile/Containers/Data/Application
+    NSString *appDataRoot = @"/var/mobile/Containers/Data/Application";
+    NSArray *guids = [fm contentsOfDirectoryAtPath:appDataRoot error:nil];
+    for (NSString *guid in guids) {
+        NSString *guidPath = [appDataRoot stringByAppendingPathComponent:guid];
+        NSString *metaPath = [guidPath stringByAppendingPathComponent:@".com.apple.mobile_container_manager.metadata.plist"];
+        NSDictionary *meta = [NSDictionary dictionaryWithContentsOfFile:metaPath];
+        if (meta && [[meta[@"MCMMetadataIdentifier"] lowercaseString] isEqualToString:@"com.apple.mobilesafari"]) {
+            NSArray *targets = @[@"Library/Cookies", @"Library/Caches", @"Library/WebKit", @"tmp"];
+            for (NSString *t in targets) {
+                NSString *targetPath = [guidPath stringByAppendingPathComponent:t];
+                NSArray *subs = [fm contentsOfDirectoryAtPath:targetPath error:nil];
+                for (NSString *s in subs) {
+                    [fm removeItemAtPath:[targetPath stringByAppendingPathComponent:s] error:nil];
+                }
+            }
         }
     }
 }

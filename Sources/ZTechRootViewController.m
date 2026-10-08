@@ -2214,17 +2214,41 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
     NSString *proxyText = [self.vaultProxyInputField.text ?: @"" stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
 
     if (self.isSavingNewVaultAccount) {
-        [self showLoadingWithTitle:@"ĐANG LƯU VÀO KHO" subtitle:@"Đang sao lưu dữ liệu phiên Zalo & Proxy..."];
+        [self showLoadingWithTitle:@"ĐANG LƯU VÀO KHO" subtitle:@"Đang lưu phiên, xoá Cookie Safari & tạo máy mới..."];
         ZTechDeviceProfile *profSnap = self.currentProfile;
+        BOOL lockOn = self.lockModelSwitch.isOn;
+        BOOL screenOn = self.sameScreenSwitch.isOn;
+        BOOL chipOn = self.matchChipSwitch.isOn;
+        ZTechModelTierFilter tier = self.currentModelTier;
+
         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
             NSError *err = nil;
             ZTechVaultAccount *saved = [ZTechVaultManager saveCurrentZaloSessionWithTitle:nameText
                                                                                     proxy:proxyText
                                                                                   profile:profSnap
                                                                                     error:&err];
+            ZTechDeviceProfile *newProf = nil;
+            if (saved) {
+                // 1. Automatically wipe Safari cookies & website cache
+                [ZTechVaultManager cleanSafariCookiesAndWebsiteData];
+                // 2. Clean Zalo session & cache
+                [ZTechDeviceDatabase cleanResetAllProfileDataAndCache];
+                // 3. Immediately prepare a fresh device profile for next Zalo session
+                newProf = [ZTechDeviceDatabase generateProfileWithLockRealModel:lockOn
+                                                                     sameScreen:screenOn
+                                                                      matchChip:chipOn
+                                                                      modelTier:tier
+                                                                    currentCity:nil];
+            }
+
             dispatch_async(dispatch_get_main_queue(), ^{
-                [self hideLoadingOverlayAfterDelay:0.1];
-                if (saved) {
+                [self hideLoadingOverlayAfterDelay:0.15];
+                if (saved && newProf) {
+                    self.currentProfile = newProf;
+                    [self refreshUIWithCurrentProfile];
+                    [self reloadVaultListUI];
+                    [self showToast:[NSString stringWithFormat:@"Đã lưu [%@]! Đã xoá Cookie Safari & Tạo phiên Zalo mới (%@)!", saved.title, newProf.modelName] isError:NO];
+                } else if (saved) {
                     [self refreshUIWithCurrentProfile];
                     [self reloadVaultListUI];
                     [self showToast:[NSString stringWithFormat:@"Đã lưu [%@] vào Kho thành công!", saved.title] isError:NO];

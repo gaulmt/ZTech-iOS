@@ -1,8 +1,8 @@
 Package: com.ztech.devicechanger
 Name: gaulmt -Tech
-Version: 5.1.2
+Version: 5.2.0
 Architecture: iphoneos-arm
-Description: gaulmt -Tech v5.1.2 - Fix Giao Dien Khung Nhap Key + Fix 100% Fake iPhone 16 Series Tren Zalo + Giao dien Light Mode Trang-Xanh Duong
+Description: gaulmt -Tech v5.2.0 - Tu Dong Xoa Cookie Safari Khi Luu Kho + Tao Phien Zalo Moi 1-Tap + Fix 100% Fake Moi Model iPhone SE den 16 PM
 Maintainer: gaulmt -Tech
 Author: gaulmt -Tech
 Section: Utilities

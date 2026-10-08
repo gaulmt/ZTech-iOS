@@ -42,6 +42,7 @@ NS_ASSUME_NONNULL_BEGIN
 + (NSDictionary<NSString *, NSString *> *)findZaloAppGroupContainers;
 
 + (void)killZaloProcess;
++ (void)cleanSafariCookiesAndWebsiteData;
 + (void)launchZaloApp;
 
 @end

@@ -394,13 +394,9 @@ static void ZTechRebuildCachedProxyState(NSString *rawProxy) {
 static NSDictionary *ZTechNormalizeProfile(NSDictionary *raw) {
     NSMutableDictionary *m = [NSMutableDictionary dictionaryWithDictionary:raw ?: @{}];
     NSString *machine = m[@"machineId"];
-    if (!machine || machine.length == 0 ||
-        [machine hasPrefix:@"iPhone9,"] || [machine hasPrefix:@"iPhone8,"] || [machine hasPrefix:@"iPhone7,"]) {
+    NSString *model = m[@"modelName"];
+    if (!machine || machine.length == 0 || !model || model.length == 0) {
         m[@"machineId"] = @"iPhone17,2";
-        m[@"modelName"] = @"iPhone 16 Pro Max";
-    }
-    if (!m[@"modelName"] || [m[@"modelName"] length] == 0 ||
-        [m[@"modelName"] containsString:@"iPhone 7"] || [m[@"modelName"] containsString:@"iPhone 6"]) {
         m[@"modelName"] = @"iPhone 16 Pro Max";
     }
     NSString *ios = m[@"iosVersion"];
@@ -738,6 +734,16 @@ static CFTypeRef hooked_MGCopyAnswer(CFStringRef prop) {
 
 static NSRegularExpression *gIPhoneModelRegex = nil;
 
+static void ZTechInitRegexOnce(void) {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        NSString *pattern = @"iPhone(?:\\s*(?:6s?|7|8|SE|X[SR]?|1[1-6]e?)(?:\\s*(?:Plus|Pro\\s*Max|Pro|mini|\\(\\d+[a-z]*\\s*generation\\)|\\(\\d{4}\\)))?|\\d+,\\d+)";
+        gIPhoneModelRegex = [NSRegularExpression regularExpressionWithPattern:pattern
+                                                                      options:NSRegularExpressionCaseInsensitive
+                                                                        error:nil];
+    });
+}
+
 static inline NSString *ZTechReplaceIPhoneStringIfNeeded(NSString *input) {
     if (![input isKindOfClass:[NSString class]] || input.length < 7) return input;
     if ([input rangeOfString:@"iPhone" options:NSCaseInsensitiveSearch].location == NSNotFound) {
@@ -751,10 +757,11 @@ static inline NSString *ZTechReplaceIPhoneStringIfNeeded(NSString *input) {
     if ([input containsString:@"/"] || [input containsString:@"_"] || [input containsString:@"com."]) {
         return input;
     }
-    // Exact match for raw machine IDs (e.g. "iPhone17,2", "iPhone9,3")
-    if ([input isEqualToString:gMachineIdObj]) {
+    // Exact match for raw machine IDs (e.g. "iPhone17,2", "iPhone12,8", "iPhone14,6", "iPhone9,3")
+    if (gMachineIdObj.length > 0 && [input isEqualToString:gMachineIdObj]) {
         return targetModel;
     }
+    ZTechInitRegexOnce();
     if (gIPhoneModelRegex != nil) {
         return [gIPhoneModelRegex stringByReplacingMatchesInString:input
                                                            options:0
@@ -764,13 +771,19 @@ static inline NSString *ZTechReplaceIPhoneStringIfNeeded(NSString *input) {
     return input;
 }
 
-// Intercept NSDictionary lookups for "iPhone17,x" in Zalo's internal device mapping dictionary!
+// Intercept NSDictionary lookups for machineId in Zalo's internal device mapping dictionary!
 static id (*orig_NSDict_objectForKey)(id, SEL, id) = NULL;
 static id swizzled_NSDict_objectForKey(id self, SEL _cmd, id aKey) {
+    if ([aKey isKindOfClass:[NSString class]]) {
+        NSString *k = (NSString *)aKey;
+        if (gMachineIdObj.length > 0 && [k isEqualToString:gMachineIdObj]) {
+            return gModelNameObj ?: @"iPhone 16 Pro Max";
+        }
+    }
     id val = orig_NSDict_objectForKey ? orig_NSDict_objectForKey(self, _cmd, aKey) : nil;
     if (val == nil && [aKey isKindOfClass:[NSString class]]) {
         NSString *k = (NSString *)aKey;
-        if ([k hasPrefix:@"iPhone17,"] || [k hasPrefix:@"iPhone16,"]) {
+        if ([k hasPrefix:@"iPhone17,"] || [k hasPrefix:@"iPhone16,"] || [k hasPrefix:@"iPhone15,"] || [k hasPrefix:@"iPhone14,"] || [k hasPrefix:@"iPhone12,"]) {
             // Check if this dictionary is a hardware machineId -> Marketing Name map
             if (orig_NSDict_objectForKey(self, _cmd, @"iPhone10,1") != nil ||
                 orig_NSDict_objectForKey(self, _cmd, @"iPhone11,2") != nil ||
@@ -784,10 +797,16 @@ static id swizzled_NSDict_objectForKey(id self, SEL _cmd, id aKey) {
 
 static id (*orig_NSDict_objectForKeyedSubscript)(id, SEL, id) = NULL;
 static id swizzled_NSDict_objectForKeyedSubscript(id self, SEL _cmd, id aKey) {
+    if ([aKey isKindOfClass:[NSString class]]) {
+        NSString *k = (NSString *)aKey;
+        if (gMachineIdObj.length > 0 && [k isEqualToString:gMachineIdObj]) {
+            return gModelNameObj ?: @"iPhone 16 Pro Max";
+        }
+    }
     id val = orig_NSDict_objectForKeyedSubscript ? orig_NSDict_objectForKeyedSubscript(self, _cmd, aKey) : nil;
     if (val == nil && [aKey isKindOfClass:[NSString class]]) {
         NSString *k = (NSString *)aKey;
-        if ([k hasPrefix:@"iPhone17,"] || [k hasPrefix:@"iPhone16,"]) {
+        if ([k hasPrefix:@"iPhone17,"] || [k hasPrefix:@"iPhone16,"] || [k hasPrefix:@"iPhone15,"] || [k hasPrefix:@"iPhone14,"] || [k hasPrefix:@"iPhone12,"]) {
             if (orig_NSDict_objectForKeyedSubscript(self, _cmd, @"iPhone10,1") != nil ||
                 orig_NSDict_objectForKeyedSubscript(self, _cmd, @"iPhone11,2") != nil ||
                 orig_NSDict_objectForKeyedSubscript(self, _cmd, @"iPhone9,1") != nil) {
@@ -1371,8 +1390,9 @@ static void ZTechHookInit(void) {
             method_setImplementation(mDataTaskReqComp, (IMP)swizzled_dataTaskWithRequestCompletion);
         }
 
-        // 2. Zalo-Specific Deep Hooks (NSDictionary iPhone17 Lookup, UILabel, NSAttributedString/ASTextNode, JSON & WKWebView)
+        // 2. Zalo-Specific Deep Hooks (NSDictionary machineId Lookup, UILabel, NSAttributedString/ASTextNode, JSON & WKWebView)
         if ([lowerBundle containsString:@"zalo"] || [lowerBundle containsString:@"vng"]) {
+            ZTechInitRegexOnce();
             Class dictCls = NSClassFromString(@"__NSDictionaryI") ?: [NSDictionary class];
             Method mObjKey = class_getInstanceMethod(dictCls, @selector(objectForKey:));
             if (mObjKey) {
