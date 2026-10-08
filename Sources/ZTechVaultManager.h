@@ -45,6 +45,9 @@ NS_ASSUME_NONNULL_BEGIN
 + (void)cleanSafariCookiesAndWebsiteData;
 + (void)launchZaloApp;
 
++ (void)setSystemAirplaneMode:(BOOL)enabled;
++ (BOOL)isSystemAirplaneModeEnabled;
+
 @end
 
 NS_ASSUME_NONNULL_END

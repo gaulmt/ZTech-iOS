@@ -231,6 +231,19 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
 @property (nonatomic, assign) BOOL isSavingNewVaultAccount;
 @property (nonatomic, copy) NSString *editingVaultAccountId;
 
+// Airplane Mode IP Rotation Modal & State
+@property (nonatomic, strong) UIView *airplaneModalOverlay;
+@property (nonatomic, strong) UIImageView *airplaneModalIcon;
+@property (nonatomic, strong) UILabel *airplaneModalTitle;
+@property (nonatomic, strong) UILabel *airplaneModalDesc;
+@property (nonatomic, strong) UILabel *airplaneCountdownLabel;
+@property (nonatomic, strong) UIProgressView *airplaneProgressBar;
+@property (nonatomic, strong) UIButton *airplaneSkipButton;
+@property (nonatomic, strong) UIButton *airplaneCancelButton;
+@property (nonatomic, strong) UIButton *airplaneSettingsButton;
+@property (nonatomic, strong) NSTimer *airplaneTimer;
+@property (nonatomic, assign) NSInteger airplaneRemainingSeconds;
+
 @end
 
 @implementation ZTechRootViewController
@@ -591,7 +604,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
 
     UILabel *appSub = [[UILabel alloc] init];
     appSub.translatesAutoresizingMaskIntoConstraints = NO;
-    appSub.text = @"Identity & Vault · v5.1";
+    appSub.text = @"Identity & Vault · v5.3";
     appSub.font = [UIFont systemFontOfSize:10.5 weight:UIFontWeightMedium];
     appSub.textColor = [self mutedTextColor];
     appSub.adjustsFontSizeToFitWidth = YES;
@@ -1250,11 +1263,11 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
     self.syncIPButton.layer.borderWidth = 1.0;
     self.syncIPButton.layer.borderColor = [self borderSubtleColor].CGColor;
     [self styleButton:self.syncIPButton
-                title:@"Đồng bộ vị trí IP"
-             iconType:ZTechIconLocationPin
+                title:@"Đổi IP"
+             iconType:ZTechIconAirplaneFly
             tintColor:[self primaryTextColor]
                  font:[UIFont systemFontOfSize:13.5 weight:UIFontWeightBold]];
-    [self.syncIPButton addTarget:self action:@selector(onTapSyncIP) forControlEvents:UIControlEventTouchUpInside];
+    [self.syncIPButton addTarget:self action:@selector(onTapRotateIP) forControlEvents:UIControlEventTouchUpInside];
 
     self.openZaloButton = [UIButton buttonWithType:UIButtonTypeSystem];
     self.openZaloButton.backgroundColor = [self emeraldBadgeBgColor];
@@ -2765,36 +2778,288 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
 }
 
 - (void)onTapSyncIP {
+    [self onTapRotateIP];
+}
+
+- (void)onTapRotateIP {
     if (![ZTechLicenseManager isLicenseCurrentlyValid]) {
         [self updateLicenseUIState];
         return;
     }
 
-    self.syncIPButton.enabled = NO;
-    [self showLoadingWithTitle:@"ĐANG ĐỒNG BỘ VỊ TRÍ IP" subtitle:@"Đang kiểm tra địa chỉ IP & nhà mạng..."];
-    [ZTechDeviceDatabase syncLocationByIPWithCompletion:^(NSString *city, NSString *isp, NSError *error) {
-        self.syncIPButton.enabled = YES;
-        [self hideLoadingOverlayAfterDelay:0.1];
-        if (city.length > 0) {
-            self.currentProfile.city = city;
-            if (isp.length > 0) {
-                if ([isp rangeOfString:@"Viettel" options:NSCaseInsensitiveSearch].location != NSNotFound) {
-                    self.currentProfile.carrier = @"Viettel";
-                } else if ([isp rangeOfString:@"VNPT" options:NSCaseInsensitiveSearch].location != NSNotFound ||
-                           [isp rangeOfString:@"Vina" options:NSCaseInsensitiveSearch].location != NSNotFound) {
-                    self.currentProfile.carrier = @"Vinaphone";
-                } else if ([isp rangeOfString:@"Mobi" options:NSCaseInsensitiveSearch].location != NSNotFound) {
-                    self.currentProfile.carrier = @"MobiFone";
-                }
-            }
-            [ZTechDeviceDatabase writeProfileFiles:self.currentProfile error:nil];
-            [[NSUserDefaults standardUserDefaults] setObject:[self.currentProfile toDictionary] forKey:@"ZTechCurrentProfile"];
-            [self refreshUIWithCurrentProfile];
-            [self showToast:[NSString stringWithFormat:@"Đã đồng bộ IP: %@ · %@", self.currentProfile.carrier, city] isError:NO];
-        } else {
-            [self showToast:@"Không thể lấy vị trí IP hiện tại (kiểm tra kết nối mạng/Proxy)." isError:YES];
-        }
+    [self showAirplaneRotationModal];
+}
+
+- (void)showAirplaneRotationModal {
+    if (self.airplaneModalOverlay) {
+        [self.airplaneTimer invalidate];
+        self.airplaneTimer = nil;
+        [self.airplaneModalOverlay removeFromSuperview];
+        self.airplaneModalOverlay = nil;
+    }
+
+    self.airplaneModalOverlay = [[UIView alloc] initWithFrame:self.view.bounds];
+    self.airplaneModalOverlay.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    self.airplaneModalOverlay.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.75];
+
+    UIView *card = [[UIView alloc] init];
+    card.translatesAutoresizingMaskIntoConstraints = NO;
+    card.backgroundColor = self.isLightMode ? [UIColor whiteColor] : [UIColor colorWithRed:0.08 green:0.10 blue:0.14 alpha:0.98];
+    card.layer.cornerRadius = 20.0;
+    card.layer.borderWidth = 1.5;
+    card.layer.borderColor = [self goldAccentColor].CGColor;
+    card.layer.masksToBounds = YES;
+    [self.airplaneModalOverlay addSubview:card];
+
+    self.airplaneModalIcon = [[UIImageView alloc] initWithImage:[ZTechVectorIcons iconWithType:ZTechIconAirplaneFly size:36.0 color:[self goldAccentColor]]];
+    self.airplaneModalIcon.translatesAutoresizingMaskIntoConstraints = NO;
+    self.airplaneModalIcon.contentMode = UIViewContentModeScaleAspectFit;
+    [card addSubview:self.airplaneModalIcon];
+
+    self.airplaneModalTitle = [[UILabel alloc] init];
+    self.airplaneModalTitle.translatesAutoresizingMaskIntoConstraints = NO;
+    self.airplaneModalTitle.text = @"ĐỔI IP MẠNG (MÁY BAY)";
+    self.airplaneModalTitle.font = [UIFont systemFontOfSize:16.0 weight:UIFontWeightHeavy];
+    self.airplaneModalTitle.textColor = [self goldAccentColor];
+    self.airplaneModalTitle.textAlignment = NSTextAlignmentCenter;
+    [card addSubview:self.airplaneModalTitle];
+
+    UIView *countdownBox = [[UIView alloc] init];
+    countdownBox.translatesAutoresizingMaskIntoConstraints = NO;
+    countdownBox.backgroundColor = [self surfaceInsetColor];
+    countdownBox.layer.cornerRadius = 16.0;
+    countdownBox.layer.borderWidth = 1.0;
+    countdownBox.layer.borderColor = [self borderSubtleColor].CGColor;
+    [card addSubview:countdownBox];
+
+    self.airplaneCountdownLabel = [[UILabel alloc] init];
+    self.airplaneCountdownLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    self.airplaneCountdownLabel.text = @"22s";
+    self.airplaneCountdownLabel.font = [UIFont monospacedDigitSystemFontOfSize:38.0 weight:UIFontWeightHeavy];
+    self.airplaneCountdownLabel.textColor = [self goldAccentColor];
+    self.airplaneCountdownLabel.textAlignment = NSTextAlignmentCenter;
+    [countdownBox addSubview:self.airplaneCountdownLabel];
+
+    self.airplaneProgressBar = [[UIProgressView alloc] initWithProgressViewStyle:UIProgressViewStyleDefault];
+    self.airplaneProgressBar.translatesAutoresizingMaskIntoConstraints = NO;
+    self.airplaneProgressBar.progressTintColor = [self goldAccentColor];
+    self.airplaneProgressBar.trackTintColor = [self borderSubtleColor];
+    self.airplaneProgressBar.layer.cornerRadius = 3.0;
+    self.airplaneProgressBar.clipsToBounds = YES;
+    self.airplaneProgressBar.progress = 0.0;
+    [card addSubview:self.airplaneProgressBar];
+
+    self.airplaneModalDesc = [[UILabel alloc] init];
+    self.airplaneModalDesc.translatesAutoresizingMaskIntoConstraints = NO;
+    self.airplaneModalDesc.text = @"✈️ Đang BẬT Chế độ máy bay...\nGiữ ngắt sóng 22s để nhà mạng cấp dải IP mới.";
+    self.airplaneModalDesc.font = [UIFont systemFontOfSize:12.5 weight:UIFontWeightMedium];
+    self.airplaneModalDesc.textColor = [self primaryTextColor];
+    self.airplaneModalDesc.textAlignment = NSTextAlignmentCenter;
+    self.airplaneModalDesc.numberOfLines = 0;
+    [card addSubview:self.airplaneModalDesc];
+
+    UIStackView *topBtnRow = [[UIStackView alloc] init];
+    topBtnRow.translatesAutoresizingMaskIntoConstraints = NO;
+    topBtnRow.axis = UILayoutConstraintAxisHorizontal;
+    topBtnRow.distribution = UIStackViewDistributionFillEqually;
+    topBtnRow.spacing = 10.0;
+    [card addSubview:topBtnRow];
+
+    self.airplaneSkipButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    self.airplaneSkipButton.backgroundColor = [self secondaryTintButtonBgColor];
+    self.airplaneSkipButton.layer.cornerRadius = 12.0;
+    self.airplaneSkipButton.layer.borderWidth = 1.0;
+    self.airplaneSkipButton.layer.borderColor = [self borderSubtleColor].CGColor;
+    [self.airplaneSkipButton setTitle:@"⚡ Bỏ qua chờ" forState:UIControlStateNormal];
+    [self.airplaneSkipButton setTitleColor:[self primaryTextColor] forState:UIControlStateNormal];
+    self.airplaneSkipButton.titleLabel.font = [UIFont systemFontOfSize:13.0 weight:UIFontWeightBold];
+    [self attachSpringTouchFeedbackToButton:self.airplaneSkipButton];
+    [self.airplaneSkipButton addTarget:self action:@selector(onTapSkipAirplaneWait) forControlEvents:UIControlEventTouchUpInside];
+    [topBtnRow addArrangedSubview:self.airplaneSkipButton];
+
+    self.airplaneSettingsButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    self.airplaneSettingsButton.backgroundColor = [self surfaceInsetColor];
+    self.airplaneSettingsButton.layer.cornerRadius = 12.0;
+    self.airplaneSettingsButton.layer.borderWidth = 1.0;
+    self.airplaneSettingsButton.layer.borderColor = [self borderSubtleColor].CGColor;
+    [self.airplaneSettingsButton setTitle:@"⚙️ Cài đặt" forState:UIControlStateNormal];
+    [self.airplaneSettingsButton setTitleColor:[self mutedTextColor] forState:UIControlStateNormal];
+    self.airplaneSettingsButton.titleLabel.font = [UIFont systemFontOfSize:13.0 weight:UIFontWeightBold];
+    [self attachSpringTouchFeedbackToButton:self.airplaneSettingsButton];
+    [self.airplaneSettingsButton addTarget:self action:@selector(onTapOpenAirplaneSettings) forControlEvents:UIControlEventTouchUpInside];
+    [topBtnRow addArrangedSubview:self.airplaneSettingsButton];
+
+    self.airplaneCancelButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    self.airplaneCancelButton.translatesAutoresizingMaskIntoConstraints = NO;
+    self.airplaneCancelButton.backgroundColor = [UIColor colorWithRed:0.92 green:0.25 blue:0.25 alpha:0.12];
+    self.airplaneCancelButton.layer.cornerRadius = 12.0;
+    self.airplaneCancelButton.layer.borderWidth = 1.0;
+    self.airplaneCancelButton.layer.borderColor = [UIColor colorWithRed:0.92 green:0.25 blue:0.25 alpha:0.35].CGColor;
+    [self.airplaneCancelButton setTitle:@"✕ Huỷ bỏ" forState:UIControlStateNormal];
+    [self.airplaneCancelButton setTitleColor:[UIColor colorWithRed:0.92 green:0.25 blue:0.25 alpha:1.0] forState:UIControlStateNormal];
+    self.airplaneCancelButton.titleLabel.font = [UIFont systemFontOfSize:13.0 weight:UIFontWeightBold];
+    [self attachSpringTouchFeedbackToButton:self.airplaneCancelButton];
+    [self.airplaneCancelButton addTarget:self action:@selector(onTapCancelAirplane) forControlEvents:UIControlEventTouchUpInside];
+    [card addSubview:self.airplaneCancelButton];
+
+    UILabel *hintLbl = [[UILabel alloc] init];
+    hintLbl.translatesAutoresizingMaskIntoConstraints = NO;
+    hintLbl.text = @"💡 Mẹo: Dùng mạng 4G/5G để nhà mạng cấp IP mới.";
+    hintLbl.font = [UIFont systemFontOfSize:10.5 weight:UIFontWeightRegular];
+    hintLbl.textColor = [self mutedTextColor];
+    hintLbl.textAlignment = NSTextAlignmentCenter;
+    [card addSubview:hintLbl];
+
+    [NSLayoutConstraint activateConstraints:@[
+        [card.centerXAnchor constraintEqualToAnchor:self.airplaneModalOverlay.centerXAnchor],
+        [card.centerYAnchor constraintEqualToAnchor:self.airplaneModalOverlay.centerYAnchor],
+        [card.widthAnchor constraintEqualToConstant:300.0],
+
+        [self.airplaneModalIcon.topAnchor constraintEqualToAnchor:card.topAnchor constant:20.0],
+        [self.airplaneModalIcon.centerXAnchor constraintEqualToAnchor:card.centerXAnchor],
+        [self.airplaneModalIcon.heightAnchor constraintEqualToConstant:36.0],
+
+        [self.airplaneModalTitle.topAnchor constraintEqualToAnchor:self.airplaneModalIcon.bottomAnchor constant:10.0],
+        [self.airplaneModalTitle.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:16.0],
+        [self.airplaneModalTitle.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-16.0],
+
+        [countdownBox.topAnchor constraintEqualToAnchor:self.airplaneModalTitle.bottomAnchor constant:14.0],
+        [countdownBox.centerXAnchor constraintEqualToAnchor:card.centerXAnchor],
+        [countdownBox.widthAnchor constraintEqualToConstant:140.0],
+        [countdownBox.heightAnchor constraintEqualToConstant:62.0],
+
+        [self.airplaneCountdownLabel.centerXAnchor constraintEqualToAnchor:countdownBox.centerXAnchor],
+        [self.airplaneCountdownLabel.centerYAnchor constraintEqualToAnchor:countdownBox.centerYAnchor],
+
+        [self.airplaneProgressBar.topAnchor constraintEqualToAnchor:countdownBox.bottomAnchor constant:14.0],
+        [self.airplaneProgressBar.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:24.0],
+        [self.airplaneProgressBar.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-24.0],
+        [self.airplaneProgressBar.heightAnchor constraintEqualToConstant:6.0],
+
+        [self.airplaneModalDesc.topAnchor constraintEqualToAnchor:self.airplaneProgressBar.bottomAnchor constant:12.0],
+        [self.airplaneModalDesc.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:16.0],
+        [self.airplaneModalDesc.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-16.0],
+
+        [topBtnRow.topAnchor constraintEqualToAnchor:self.airplaneModalDesc.bottomAnchor constant:18.0],
+        [topBtnRow.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:20.0],
+        [topBtnRow.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-20.0],
+        [topBtnRow.heightAnchor constraintEqualToConstant:40.0],
+
+        [self.airplaneCancelButton.topAnchor constraintEqualToAnchor:topBtnRow.bottomAnchor constant:10.0],
+        [self.airplaneCancelButton.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:20.0],
+        [self.airplaneCancelButton.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-20.0],
+        [self.airplaneCancelButton.heightAnchor constraintEqualToConstant:36.0],
+
+        [hintLbl.topAnchor constraintEqualToAnchor:self.airplaneCancelButton.bottomAnchor constant:12.0],
+        [hintLbl.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:14.0],
+        [hintLbl.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-14.0],
+        [hintLbl.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-16.0]
+    ]];
+
+    [self.view addSubview:self.airplaneModalOverlay];
+    self.airplaneModalOverlay.alpha = 0.0;
+    [UIView animateWithDuration:0.2 animations:^{
+        self.airplaneModalOverlay.alpha = 1.0;
     }];
+
+    // 1. Activate Airplane Mode ON
+    [ZTechVaultManager setSystemAirplaneMode:YES];
+
+    // 2. Start 22s timer
+    self.airplaneRemainingSeconds = 22;
+    [self.airplaneTimer invalidate];
+    self.airplaneTimer = [NSTimer scheduledTimerWithTimeInterval:1.0 target:self selector:@selector(onAirplaneTimerTick) userInfo:nil repeats:YES];
+}
+
+- (void)onAirplaneTimerTick {
+    self.airplaneRemainingSeconds--;
+    if (self.airplaneRemainingSeconds > 0) {
+        self.airplaneCountdownLabel.text = [NSString stringWithFormat:@"%lds", (long)self.airplaneRemainingSeconds];
+        float prog = (float)(22 - self.airplaneRemainingSeconds) / 22.0f;
+        [self.airplaneProgressBar setProgress:prog animated:YES];
+    } else {
+        [self.airplaneTimer invalidate];
+        self.airplaneTimer = nil;
+        [self performAirplaneReconnectAndSyncIP];
+    }
+}
+
+- (void)performAirplaneReconnectAndSyncIP {
+    [self.airplaneTimer invalidate];
+    self.airplaneTimer = nil;
+
+    // 1. Turn Airplane Mode OFF
+    [ZTechVaultManager setSystemAirplaneMode:NO];
+
+    self.airplaneSkipButton.enabled = NO;
+    self.airplaneSkipButton.alpha = 0.5;
+    self.airplaneCountdownLabel.font = [UIFont systemFontOfSize:17.0 weight:UIFontWeightBold];
+    self.airplaneCountdownLabel.text = @"Bắt sóng...";
+    self.airplaneProgressBar.progress = 1.0;
+    self.airplaneModalDesc.text = @"📶 Đã tắt chế độ máy bay!\nĐang đợi thiết bị bắt sóng và cấp IP mới...";
+
+    // Wait 4 seconds for cellular network to negotiate fresh IP
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(4.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        self.airplaneModalDesc.text = @"🔍 Đang kiểm tra địa chỉ IP mới...";
+        [ZTechDeviceDatabase syncLocationByIPWithCompletion:^(NSString *city, NSString *isp, NSError *error) {
+            [self dismissAirplaneRotationModal];
+            if (city.length > 0) {
+                self.currentProfile.city = city;
+                if (isp.length > 0) {
+                    if ([isp rangeOfString:@"Viettel" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+                        self.currentProfile.carrier = @"Viettel";
+                    } else if ([isp rangeOfString:@"VNPT" options:NSCaseInsensitiveSearch].location != NSNotFound ||
+                               [isp rangeOfString:@"Vina" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+                        self.currentProfile.carrier = @"Vinaphone";
+                    } else if ([isp rangeOfString:@"Mobi" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+                        self.currentProfile.carrier = @"MobiFone";
+                    }
+                }
+                [ZTechDeviceDatabase writeProfileFiles:self.currentProfile error:nil];
+                [[NSUserDefaults standardUserDefaults] setObject:[self.currentProfile toDictionary] forKey:@"ZTechCurrentProfile"];
+                [self refreshUIWithCurrentProfile];
+                [self showToast:[NSString stringWithFormat:@"Đã đổi IP thành công: %@ · %@", self.currentProfile.carrier, city] isError:NO];
+            } else {
+                [self showToast:@"Đã hoàn tất chu trình 22s đổi IP! Hãy kiểm tra lại mạng 4G/LTE." isError:NO];
+            }
+        }];
+    });
+}
+
+- (void)onTapSkipAirplaneWait {
+    [self performAirplaneReconnectAndSyncIP];
+}
+
+- (void)onTapCancelAirplane {
+    [self.airplaneTimer invalidate];
+    self.airplaneTimer = nil;
+    [ZTechVaultManager setSystemAirplaneMode:NO];
+    [self dismissAirplaneRotationModal];
+    [self showToast:@"Đã dừng tiến trình đổi IP!" isError:YES];
+}
+
+- (void)onTapOpenAirplaneSettings {
+    NSURL *url = [NSURL URLWithString:@"App-Prefs:root=AIRPLANE_MODE"];
+    if (![[UIApplication sharedApplication] canOpenURL:url]) {
+        url = [NSURL URLWithString:@"prefs:root=AIRPLANE_MODE"];
+    }
+    if (![[UIApplication sharedApplication] canOpenURL:url]) {
+        url = [NSURL URLWithString:UIApplicationOpenSettingsURLString];
+    }
+    [[UIApplication sharedApplication] openURL:url options:@{} completionHandler:nil];
+}
+
+- (void)dismissAirplaneRotationModal {
+    [self.airplaneTimer invalidate];
+    self.airplaneTimer = nil;
+    if (self.airplaneModalOverlay) {
+        [UIView animateWithDuration:0.2 animations:^{
+            self.airplaneModalOverlay.alpha = 0.0;
+        } completion:^(BOOL finished) {
+            [self.airplaneModalOverlay removeFromSuperview];
+            self.airplaneModalOverlay = nil;
+        }];
+    }
 }
 
 - (void)onTapCopyReport {

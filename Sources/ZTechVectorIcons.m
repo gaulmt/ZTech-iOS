@@ -693,6 +693,37 @@
             [crown stroke];
             break;
         }
+
+        case ZTechIconAirplaneFly: {
+            // High-precision vector commercial airliner
+            UIBezierPath *plane = [UIBezierPath bezierPath];
+            [plane moveToPoint:CGPointMake(12.0, 2.5)];
+            [plane addCurveToPoint:CGPointMake(13.6, 8.5) controlPoint1:CGPointMake(13.0, 4.0) controlPoint2:CGPointMake(13.6, 6.0)];
+            [plane addLineToPoint:CGPointMake(22.0, 12.0)];
+            [plane addLineToPoint:CGPointMake(22.0, 14.5)];
+            [plane addLineToPoint:CGPointMake(13.6, 13.0)];
+            [plane addLineToPoint:CGPointMake(13.6, 18.2)];
+            [plane addLineToPoint:CGPointMake(17.5, 21.0)];
+            [plane addLineToPoint:CGPointMake(17.5, 22.5)];
+            [plane addLineToPoint:CGPointMake(12.0, 21.0)];
+            [plane addLineToPoint:CGPointMake(6.5, 22.5)];
+            [plane addLineToPoint:CGPointMake(6.5, 21.0)];
+            [plane addLineToPoint:CGPointMake(10.4, 18.2)];
+            [plane addLineToPoint:CGPointMake(10.4, 13.0)];
+            [plane addLineToPoint:CGPointMake(2.0, 14.5)];
+            [plane addLineToPoint:CGPointMake(2.0, 12.0)];
+            [plane addLineToPoint:CGPointMake(10.4, 8.5)];
+            [plane addCurveToPoint:CGPointMake(12.0, 2.5) controlPoint1:CGPointMake(10.4, 6.0) controlPoint2:CGPointMake(11.0, 4.0)];
+            [plane closePath];
+
+            [duotoneFill setFill];
+            [plane fill];
+            plane.lineWidth = 1.7;
+            plane.lineJoinStyle = kCGLineJoinRound;
+            [primaryColor setStroke];
+            [plane stroke];
+            break;
+        }
     }
 
     UIImage *img = UIGraphicsGetImageFromCurrentImageContext();

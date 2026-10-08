@@ -21,6 +21,7 @@
 #import <mach-o/loader.h>
 #import <mach-o/nlist.h>
 #import <string.h>
+#import <notify.h>
 
 #pragma mark - Safe Embedded Fishhook (Supports Chained Fixups __got + Lazy/Non-Lazy Symbol Pointers)
 
@@ -1254,6 +1255,55 @@ static void ZTechHookInit(void) {
     @autoreleasepool {
         NSString *bundleId = [[NSBundle mainBundle] bundleIdentifier];
         NSString *bundlePath = [[NSBundle mainBundle] bundlePath];
+
+        if ([bundleId isEqualToString:@"com.apple.springboard"]) {
+            static int tokenOn = 0;
+            notify_register_dispatch("com.ztech.airplaneModeOn", &tokenOn, dispatch_get_main_queue(), ^(int token) {
+                @try {
+                    Class sbClass = objc_getClass("SBAirplaneModeController");
+                    if (sbClass) {
+                        id ctrl = [sbClass sharedInstance];
+                        if ([ctrl respondsToSelector:@selector(setInAirplaneMode:)]) {
+                            [ctrl setInAirplaneMode:YES];
+                        }
+                    }
+                    Class rpClass = objc_getClass("RadiosPreferences");
+                    if (rpClass) {
+                        id rp = [[rpClass alloc] init];
+                        if ([rp respondsToSelector:@selector(setAirplaneMode:)]) {
+                            [rp setAirplaneMode:YES];
+                        }
+                        if ([rp respondsToSelector:@selector(synchronize)]) {
+                            [rp synchronize];
+                        }
+                    }
+                } @catch (NSException *e) {}
+            });
+
+            static int tokenOff = 0;
+            notify_register_dispatch("com.ztech.airplaneModeOff", &tokenOff, dispatch_get_main_queue(), ^(int token) {
+                @try {
+                    Class sbClass = objc_getClass("SBAirplaneModeController");
+                    if (sbClass) {
+                        id ctrl = [sbClass sharedInstance];
+                        if ([ctrl respondsToSelector:@selector(setInAirplaneMode:)]) {
+                            [ctrl setInAirplaneMode:NO];
+                        }
+                    }
+                    Class rpClass = objc_getClass("RadiosPreferences");
+                    if (rpClass) {
+                        id rp = [[rpClass alloc] init];
+                        if ([rp respondsToSelector:@selector(setAirplaneMode:)]) {
+                            [rp setAirplaneMode:NO];
+                        }
+                        if ([rp respondsToSelector:@selector(synchronize)]) {
+                            [rp synchronize];
+                        }
+                    }
+                } @catch (NSException *e) {}
+            });
+            return;
+        }
 
         if (!bundleId || !bundlePath ||
             [bundleId isEqualToString:@"com.ztech.devicechanger"] ||

@@ -7,6 +7,8 @@
 #import <signal.h>
 #import <unistd.h>
 #import <spawn.h>
+#import <dlfcn.h>
+#import <notify.h>
 
 extern char **environ;
 
@@ -747,6 +749,47 @@ extern char **environ;
             [[UIApplication sharedApplication] openURL:zaloUrl options:@{} completionHandler:nil];
         }
     } @catch (NSException *e) {}
+}
+
++ (void)setSystemAirplaneMode:(BOOL)enabled {
+    @try {
+        // 1. Try loading AppSupport or RadiosPreferences
+        static void *appSupportHandle = NULL;
+        if (!appSupportHandle) {
+            appSupportHandle = dlopen("/System/Library/PrivateFrameworks/AppSupport.framework/AppSupport", RTLD_NOW);
+        }
+        if (!appSupportHandle) {
+            appSupportHandle = dlopen("/System/Library/PrivateFrameworks/RadiosPreferences.framework/RadiosPreferences", RTLD_NOW);
+        }
+
+        Class rpClass = NSClassFromString(@"RadiosPreferences");
+        if (rpClass) {
+            id rp = [[rpClass alloc] init];
+            if ([rp respondsToSelector:@selector(setAirplaneMode:)]) {
+                [rp setAirplaneMode:enabled];
+            }
+            if ([rp respondsToSelector:@selector(synchronize)]) {
+                [rp synchronize];
+            }
+        }
+
+        // 2. Broadcast Darwin Notification to SpringBoard / System daemons
+        notify_post(enabled ? "com.ztech.airplaneModeOn" : "com.ztech.airplaneModeOff");
+        notify_post("com.apple.radios.airplaneModeChanged");
+    } @catch (NSException *e) {}
+}
+
++ (BOOL)isSystemAirplaneModeEnabled {
+    @try {
+        Class rpClass = NSClassFromString(@"RadiosPreferences");
+        if (rpClass) {
+            id rp = [[rpClass alloc] init];
+            if ([rp respondsToSelector:@selector(airplaneMode)]) {
+                return [rp airplaneMode];
+            }
+        }
+    } @catch (NSException *e) {}
+    return NO;
 }
 
 @end

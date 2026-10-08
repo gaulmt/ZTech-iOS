@@ -27,7 +27,8 @@ typedef NS_ENUM(NSInteger, ZTechCustomIconType) {
     ZTechIconKeyVip,
     ZTechIconKeypadGrid,
     ZTechIconCloudSync,
-    ZTechIconCrownTier
+    ZTechIconCrownTier,
+    ZTechIconAirplaneFly
 };
 
 @interface ZTechVectorIcons : NSObject
